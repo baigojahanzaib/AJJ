@@ -378,7 +378,7 @@ export default function SalesCart() {
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 35 : 20}
     >
       <View style={styles.modalContent}>
         <View style={styles.modalHeader}>
@@ -1077,7 +1077,8 @@ const styles = StyleSheet.create({
   },
   createFormFooter: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingTop: 8,
+    paddingBottom: 8,
     borderTopWidth: 1,
     borderTopColor: Colors.light.borderLight,
   },
@@ -1191,7 +1192,7 @@ const styles = StyleSheet.create({
   },
   addressInputRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
     gap: 10,
   },
   addressInputContainer: {
@@ -1204,6 +1205,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 4,
+    marginTop: 25,
   },
 });
