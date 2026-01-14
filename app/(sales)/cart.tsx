@@ -3,8 +3,9 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, KeyboardAvoidingV
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { Minus, Plus, Trash2, ShoppingBag, CheckCircle, UserPlus, Search, X, ChevronRight } from 'lucide-react-native';
+import { Minus, Plus, Trash2, ShoppingBag, CheckCircle, UserPlus, Search, X, ChevronRight, MapPin } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import { useCart } from '@/contexts/CartContext';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -134,7 +135,7 @@ export default function SalesCart() {
       });
       return;
     }
-    
+
     setCustomerInfo({
       name: tempCustomerInfo.name,
       phone: tempCustomerInfo.phone,
@@ -158,7 +159,7 @@ export default function SalesCart() {
   };
 
   const handleSubmitOrder = async (customer?: Customer | null, newCustomerData?: typeof tempCustomerInfo) => {
-    const customerData = customer 
+    const customerData = customer
       ? { name: customer.name, phone: customer.phone, email: customer.email, address: customer.address }
       : newCustomerData || customerInfo;
 
@@ -205,7 +206,7 @@ export default function SalesCart() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setShowCustomerModal(false);
-      
+
       showAlert({
         title: 'Order Submitted!',
         message: `Order ${newOrder.orderNumber} has been created successfully.`,
@@ -247,7 +248,7 @@ export default function SalesCart() {
     <View style={styles.modalContent}>
       <View style={styles.modalHeader}>
         <Text style={styles.modalTitle}>Select Customer</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.modalCloseButton}
           onPress={() => setShowCustomerModal(false)}
         >
@@ -255,8 +256,8 @@ export default function SalesCart() {
         </TouchableOpacity>
       </View>
 
-      <TouchableOpacity 
-        style={styles.createCustomerButton} 
+      <TouchableOpacity
+        style={styles.createCustomerButton}
         onPress={handleOpenCreateCustomer}
         activeOpacity={0.7}
       >
@@ -331,77 +332,134 @@ export default function SalesCart() {
     </View>
   );
 
-  const renderCreateCustomerView = () => (
-    <View style={styles.modalContent}>
-      <View style={styles.modalHeader}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => setCustomerModalStep('list')}
-        >
-          <X size={24} color={Colors.light.text} />
-        </TouchableOpacity>
-        <Text style={styles.modalTitle}>New Customer</Text>
-        <View style={{ width: 40 }} />
-      </View>
+  const handleGetLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert({
+          title: 'Permission Denied',
+          message: 'Location permission is required to get your current location.',
+          type: 'warning',
+          buttons: [{ text: 'OK', style: 'default' }],
+        });
+        return;
+      }
 
-      <ScrollView 
-        style={styles.createFormScroll} 
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.formContainer}>
-          <Input
-            label="Customer Name"
-            placeholder="Enter customer name"
-            value={tempCustomerInfo.name}
-            onChangeText={(text) => setTempCustomerInfo({ ...tempCustomerInfo, name: text })}
-            containerStyle={styles.inputContainer}
-          />
-          <Input
-            label="Phone Number"
-            placeholder="Enter phone number"
-            value={tempCustomerInfo.phone}
-            onChangeText={(text) => setTempCustomerInfo({ ...tempCustomerInfo, phone: text })}
-            keyboardType="phone-pad"
-            containerStyle={styles.inputContainer}
-          />
-          <Input
-            label="Email (Optional)"
-            placeholder="Enter email address"
-            value={tempCustomerInfo.email}
-            onChangeText={(text) => setTempCustomerInfo({ ...tempCustomerInfo, email: text })}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            containerStyle={styles.inputContainer}
-          />
-          <Input
-            label="Delivery Address (Optional)"
-            placeholder="Enter delivery address"
-            value={tempCustomerInfo.address}
-            onChangeText={(text) => setTempCustomerInfo({ ...tempCustomerInfo, address: text })}
-            multiline
-            numberOfLines={2}
-            containerStyle={styles.inputContainer}
+      const location = await Location.getCurrentPositionAsync({});
+      const [address] = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      });
+
+      if (address) {
+        const formattedAddress = [
+          address.streetNumber,
+          address.street,
+          address.city,
+          address.region,
+          address.postalCode,
+        ].filter(Boolean).join(', ');
+
+        setTempCustomerInfo(prev => ({ ...prev, address: formattedAddress }));
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (error) {
+      console.error('[Cart] Error getting location:', error);
+      showAlert({
+        title: 'Location Error',
+        message: 'Unable to get your current location. Please enter address manually.',
+        type: 'error',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
+    }
+  };
+
+  const renderCreateCustomerView = () => (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+    >
+      <View style={styles.modalContent}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => setCustomerModalStep('list')}
+          >
+            <X size={24} color={Colors.light.text} />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>New Customer</Text>
+          <View style={{ width: 40 }} />
+        </View>
+
+        <ScrollView
+          style={styles.createFormScroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.formContainer}>
+            <Input
+              label="Customer Name"
+              placeholder="Enter customer name"
+              value={tempCustomerInfo.name}
+              onChangeText={(text) => setTempCustomerInfo({ ...tempCustomerInfo, name: text })}
+              containerStyle={styles.inputContainer}
+            />
+            <Input
+              label="Phone Number"
+              placeholder="Enter phone number"
+              value={tempCustomerInfo.phone}
+              onChangeText={(text) => setTempCustomerInfo({ ...tempCustomerInfo, phone: text })}
+              keyboardType="phone-pad"
+              containerStyle={styles.inputContainer}
+            />
+            <Input
+              label="Email (Optional)"
+              placeholder="Enter email address"
+              value={tempCustomerInfo.email}
+              onChangeText={(text) => setTempCustomerInfo({ ...tempCustomerInfo, email: text })}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              containerStyle={styles.inputContainer}
+            />
+            <View style={styles.addressInputRow}>
+              <View style={styles.addressInputContainer}>
+                <Input
+                  label="Delivery Address (Optional)"
+                  placeholder="Enter delivery address"
+                  value={tempCustomerInfo.address}
+                  onChangeText={(text) => setTempCustomerInfo({ ...tempCustomerInfo, address: text })}
+                  multiline
+                  numberOfLines={2}
+                />
+              </View>
+              <TouchableOpacity
+                style={styles.locationButton}
+                onPress={handleGetLocation}
+              >
+                <MapPin size={22} color={Colors.light.primaryForeground} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={[styles.createFormFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <Button
+            title="Continue to Review"
+            onPress={handleSaveAndSelectNewCustomer}
+            fullWidth
+            size="lg"
+            icon={<ChevronRight size={20} color={Colors.light.primaryForeground} />}
           />
         </View>
-      </ScrollView>
-
-      <View style={[styles.createFormFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-        <Button
-          title="Continue to Review"
-          onPress={handleSaveAndSelectNewCustomer}
-          fullWidth
-          size="lg"
-          icon={<ChevronRight size={20} color={Colors.light.primaryForeground} />}
-        />
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 
   const renderConfirmationView = () => (
     <View style={styles.modalContent}>
       <View style={styles.modalHeader}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => setCustomerModalStep('list')}
         >
@@ -411,8 +469,8 @@ export default function SalesCart() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView 
-        style={styles.createFormScroll} 
+      <ScrollView
+        style={styles.createFormScroll}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.confirmSection}>
@@ -537,10 +595,12 @@ export default function SalesCart() {
                 type: 'warning',
                 buttons: [
                   { text: 'Cancel', style: 'cancel' },
-                  { text: 'Clear', style: 'destructive', onPress: () => {
-                    clearCart();
-                    setSelectedCustomer(null);
-                  }},
+                  {
+                    text: 'Clear', style: 'destructive', onPress: () => {
+                      clearCart();
+                      setSelectedCustomer(null);
+                    }
+                  },
                 ],
               });
             }}
@@ -1128,5 +1188,22 @@ const styles = StyleSheet.create({
   },
   bottomPadding: {
     height: 20,
+  },
+  addressInputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+  },
+  addressInputContainer: {
+    flex: 1,
+  },
+  locationButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: Colors.light.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
   },
 });

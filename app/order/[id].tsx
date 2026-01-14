@@ -4,9 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import { 
-  ArrowLeft, User, Phone, Mail, MapPin, FileText, Calendar, Package, 
-  ChevronDown, Edit3, Share2, RotateCcw, X, Check, Clock, Minus, Plus, Trash2 
+import {
+  ArrowLeft, User, Phone, Mail, MapPin, FileText, Calendar, Package,
+  ChevronDown, Edit3, Share2, RotateCcw, X, Check, Clock, Minus, Plus, Trash2
 } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -110,7 +110,7 @@ export default function OrderDetailPage() {
 
   const handleShare = async () => {
     try {
-      const itemsList = order.items.map(item => 
+      const itemsList = order.items.map(item =>
         `• ${item.productName} x${item.quantity} - $${item.totalPrice.toFixed(2)}`
       ).join('\n');
 
@@ -159,7 +159,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
 
   const handleSaveEdit = () => {
     const changes: string[] = [];
-    
+
     if (editCustomerName !== order.customerName) changes.push('customer name');
     if (editCustomerPhone !== order.customerPhone) changes.push('phone');
     if (editCustomerEmail !== order.customerEmail) changes.push('email');
@@ -215,8 +215,8 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
       type: 'warning',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Undo', 
+        {
+          text: 'Undo',
           style: 'destructive',
           onPress: () => {
             undoOrderEdit(order.id);
@@ -272,30 +272,6 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
         </View>
 
         <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.editSection}>
-            <Text style={styles.editSectionTitle}>Order Status</Text>
-            <View style={styles.statusGrid}>
-              {statusOptions.map((status) => (
-                <TouchableOpacity
-                  key={status.id}
-                  style={[
-                    styles.statusChip,
-                    editStatus === status.id && styles.statusChipActive,
-                  ]}
-                  onPress={() => setEditStatus(status.id)}
-                >
-                  <Text
-                    style={[
-                      styles.statusChipText,
-                      editStatus === status.id && styles.statusChipTextActive,
-                    ]}
-                  >
-                    {status.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
 
           <View style={styles.editSection}>
             <Text style={styles.editSectionTitle}>Customer Information</Text>
@@ -425,7 +401,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
-      
+
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={Colors.light.text} />
@@ -608,7 +584,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
           </View>
         )}
 
-        {isAdmin && (
+        {canEdit && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Quick Status Update</Text>
             <TouchableOpacity

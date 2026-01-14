@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +17,17 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Handle navigation in useEffect to avoid updating state during render
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && user) {
+      if (user.role === 'admin' && !isViewingAsUser) {
+        router.replace('/(admin)/dashboard');
+      } else {
+        router.replace('/(sales)/catalog');
+      }
+    }
+  }, [authLoading, isAuthenticated, user, isViewingAsUser, router]);
+
   if (authLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -26,13 +37,14 @@ export default function LoginScreen() {
     );
   }
 
+  // Show loading while redirecting authenticated users
   if (isAuthenticated && user) {
-    if (user.role === 'admin' && !isViewingAsUser) {
-      router.replace('/(admin)/dashboard');
-    } else {
-      router.replace('/(sales)/catalog');
-    }
-    return null;
+    return (
+      <View style={styles.loadingContainer}>
+        <ShoppingBag size={48} color={Colors.light.primary} />
+        <Text style={styles.loadingText}>Redirecting...</Text>
+      </View>
+    );
   }
 
   const handleLogin = async () => {

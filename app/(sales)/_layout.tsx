@@ -1,4 +1,4 @@
-import { Tabs } from "expo-router";
+import { Tabs, Stack } from "expo-router";
 import { Package, ShoppingCart, ClipboardList, User, Users } from "lucide-react-native";
 import Colors from "@/constants/colors";
 import { useCart } from "@/contexts/CartContext";
@@ -6,7 +6,7 @@ import { View, Text, StyleSheet } from "react-native";
 
 function CartTabIcon({ color, size }: { color: string; size: number }) {
   const { itemCount } = useCart();
-  
+
   return (
     <View>
       <ShoppingCart size={size} color={color} />
@@ -19,7 +19,7 @@ function CartTabIcon({ color, size }: { color: string; size: number }) {
   );
 }
 
-export default function SalesTabLayout() {
+function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
@@ -67,8 +67,31 @@ export default function SalesTabLayout() {
           tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
         }}
       />
+      {/* Hide these from tab bar - they're accessed via navigation */}
+      <Tabs.Screen
+        name="product/[id]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="customer/[id]"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="customer/add"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
+}
+
+export default function SalesLayout() {
+  return <TabsLayout />;
 }
 
 const styles = StyleSheet.create({
@@ -90,3 +113,4 @@ const styles = StyleSheet.create({
     fontWeight: '700' as const,
   },
 });
+
