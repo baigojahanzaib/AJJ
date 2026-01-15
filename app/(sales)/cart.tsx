@@ -13,9 +13,9 @@ import Input from '@/components/Input';
 import Button from '@/components/Button';
 import Card from '@/components/Card';
 import Colors from '@/constants/colors';
-import { getActiveCustomers } from '@/mocks/customers';
 import { Customer } from '@/types';
 import ThemedAlert from '@/components/ThemedAlert';
+import { generateAndSharePDF } from '@/lib/pdf-generator';
 
 interface AlertConfig {
   visible: boolean;
@@ -31,7 +31,7 @@ export default function SalesCart() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { items, customerInfo, notes, subtotal, tax, total, itemCount, setCustomerInfo, setNotes, updateQuantity, removeItem, clearCart } = useCart();
-  const { addOrder } = useData();
+  const { addOrder, users } = useData();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -66,7 +66,10 @@ export default function SalesCart() {
     setAlertConfig(prev => ({ ...prev, visible: false }));
   };
 
-  const activeCustomers = useMemo(() => getActiveCustomers(), []);
+  // Get active customers from Convex via DataContext
+  // For now, we'll use an empty array since customers aren't loaded in DataContext yet
+  // TODO: Add customers query to DataContext
+  const activeCustomers: Customer[] = useMemo(() => [], []);
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return activeCustomers;
@@ -212,6 +215,31 @@ export default function SalesCart() {
         message: `Order ${newOrder.orderNumber} has been created successfully.`,
         type: 'success',
         buttons: [
+          {
+            text: 'Share PDF',
+            style: 'default',
+            onPress: async () => {
+              try {
+                // Generate and share PDF
+                // We don't await here inside the onPress immediately if we want the modal to close?
+                // Actually, best to clear cart and navigate first, then share, or share then navigate.
+                // Sharing keeps the app in foreground but opens overlay.
+                // Let's clear and navigate, then share.
+                clearCart();
+                setSelectedCustomer(null);
+
+                // Navigate to orders list first so we are on a stable screen
+                router.push('/(sales)/orders');
+
+                // Small delay to allow navigation transition
+                setTimeout(() => {
+                  generateAndSharePDF(newOrder);
+                }, 500);
+              } catch (e) {
+                console.error('Error sharing PDF:', e);
+              }
+            },
+          },
           {
             text: 'View Orders',
             style: 'default',
@@ -506,7 +534,7 @@ export default function SalesCart() {
                   )}
                   <Text style={styles.confirmItemQty}>Qty: {item.quantity}</Text>
                 </View>
-                <Text style={styles.confirmItemPrice}>${item.totalPrice.toFixed(2)}</Text>
+                <Text style={styles.confirmItemPrice}>R{item.totalPrice.toFixed(2)}</Text>
               </View>
             ))}
           </View>
@@ -517,15 +545,15 @@ export default function SalesCart() {
           <View style={styles.confirmCard}>
             <View style={styles.confirmSummaryRow}>
               <Text style={styles.confirmSummaryLabel}>Subtotal</Text>
-              <Text style={styles.confirmSummaryValue}>${subtotal.toFixed(2)}</Text>
+              <Text style={styles.confirmSummaryValue}>R{subtotal.toFixed(2)}</Text>
             </View>
             <View style={styles.confirmSummaryRow}>
               <Text style={styles.confirmSummaryLabel}>Tax (9%)</Text>
-              <Text style={styles.confirmSummaryValue}>${tax.toFixed(2)}</Text>
+              <Text style={styles.confirmSummaryValue}>R{tax.toFixed(2)}</Text>
             </View>
             <View style={[styles.confirmSummaryRow, styles.confirmTotalRow]}>
               <Text style={styles.confirmTotalLabel}>Total</Text>
-              <Text style={styles.confirmTotalValue}>${total.toFixed(2)}</Text>
+              <Text style={styles.confirmTotalValue}>R{total.toFixed(2)}</Text>
             </View>
           </View>
         </View>
@@ -627,7 +655,7 @@ export default function SalesCart() {
                         {item.selectedVariations.map(v => v.optionName).join(' / ')}
                       </Text>
                     )}
-                    <Text style={styles.itemPrice}>${item.unitPrice.toFixed(2)} each</Text>
+                    <Text style={styles.itemPrice}>R{item.unitPrice.toFixed(2)} each</Text>
                   </View>
                 </View>
                 <View style={styles.itemActions}>
@@ -653,7 +681,7 @@ export default function SalesCart() {
                     </TouchableOpacity>
                   </View>
                   <View style={styles.itemTotalContainer}>
-                    <Text style={styles.itemTotal}>${item.totalPrice.toFixed(2)}</Text>
+                    <Text style={styles.itemTotal}>R{item.totalPrice.toFixed(2)}</Text>
                     <TouchableOpacity
                       onPress={() => {
                         removeItem(item.id);
@@ -673,15 +701,15 @@ export default function SalesCart() {
             <Card>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Subtotal</Text>
-                <Text style={styles.summaryValue}>${subtotal.toFixed(2)}</Text>
+                <Text style={styles.summaryValue}>R{subtotal.toFixed(2)}</Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Tax (9%)</Text>
-                <Text style={styles.summaryValue}>${tax.toFixed(2)}</Text>
+                <Text style={styles.summaryValue}>R{tax.toFixed(2)}</Text>
               </View>
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
+                <Text style={styles.totalValue}>R{total.toFixed(2)}</Text>
               </View>
             </Card>
           </View>

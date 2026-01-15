@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Phone, Mail, MapPin, Building2, Edit2, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { mockCustomers } from '@/mocks/customers';
+import { useData } from '@/contexts/DataContext';
 import Card from '@/components/Card';
 import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
@@ -29,8 +29,8 @@ export default function CustomerDetailPage() {
         buttons: [],
     });
 
-    // In production, this would come from context/state management
-    const customer = mockCustomers.find(c => c.id === id);
+    const { getCustomerById, updateCustomer } = useData();
+    const customer = getCustomerById(id as string);
 
     const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
         setAlertConfig({ ...config, visible: true });
@@ -52,10 +52,14 @@ export default function CustomerDetailPage() {
                 {
                     text: 'Delete',
                     style: 'destructive',
-                    onPress: () => {
-                        // In production, this would update via context
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                        router.back();
+                    onPress: async () => {
+                        try {
+                            await updateCustomer(id as string, { isActive: false });
+                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                            router.back();
+                        } catch (error) {
+                            console.error('Error deleting customer:', error);
+                        }
                     },
                 },
             ],

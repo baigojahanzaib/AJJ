@@ -92,6 +92,23 @@ export const update = mutation({
     },
 });
 
+// Delete/deactivate user
+export const remove = mutation({
+    args: { id: v.id("users") },
+    handler: async (ctx, args) => {
+        // Soft delete - just deactivate
+        await ctx.db.patch(args.id, { isActive: false });
+    },
+});
+
+// Hard delete user
+export const hardDelete = mutation({
+    args: { id: v.id("users") },
+    handler: async (ctx, args) => {
+        await ctx.db.delete(args.id);
+    },
+});
+
 // Get sales reps only
 export const getSalesReps = query({
     args: {},
@@ -100,3 +117,20 @@ export const getSalesReps = query({
         return users.filter((u) => u.role === "sales_rep");
     },
 });
+
+// Reset all passwords to defaults (for development)
+export const resetPasswords = mutation({
+    args: {},
+    handler: async (ctx) => {
+        const users = await ctx.db.query("users").collect();
+
+        for (const user of users) {
+            const defaultPassword = user.role === "admin" ? "admin123" : "sales123";
+            await ctx.db.patch(user._id, { passwordHash: defaultPassword });
+        }
+
+        console.log(`[Users] Reset passwords for ${users.length} users`);
+        return { success: true, message: `Reset passwords for ${users.length} users` };
+    },
+});
+

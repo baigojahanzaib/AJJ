@@ -60,6 +60,7 @@ const variationOptionValidator = v.object({
     name: v.string(),
     priceModifier: v.number(),
     sku: v.string(),
+    moq: v.optional(v.number()),
     stock: v.number(),
     image: v.optional(v.string()),
 });
@@ -82,6 +83,7 @@ export const create = mutation({
         isActive: v.boolean(),
         variations: v.array(productVariationValidator),
         stock: v.number(),
+        moq: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
         return await ctx.db.insert("products", {
@@ -104,6 +106,7 @@ export const update = mutation({
         isActive: v.optional(v.boolean()),
         variations: v.optional(v.array(productVariationValidator)),
         stock: v.optional(v.number()),
+        moq: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
         const { id, ...updates } = args;
@@ -128,5 +131,60 @@ export const hardDelete = mutation({
     args: { id: v.id("products") },
     handler: async (ctx, args) => {
         await ctx.db.delete(args.id);
+    },
+});
+
+// Batch update MOQ
+export const batchUpdateMOQ = mutation({
+    args: {
+        updates: v.array(
+            v.object({
+                ecwidId: v.number(),
+                sku: v.string(),
+                moq: v.number(),
+            })
+        ),
+    },
+    handler: async (ctx, args) => {
+        const results = [];
+        for (const update of args.updates) {
+            // Find product by Ecwid ID
+            const product = await ctx.db
+                .query("products")
+                .withIndex("by_ecwidId", (q) => q.eq("ecwidId", update.ecwidId))
+                .first();
+
+            if (!product) {
+                results.push({ sku: update.sku, success: false, message: "Product not found" });
+                continue;
+            }
+
+            // Check if SKU matches main product
+            if (product.sku === update.sku) {
+                await ctx.db.patch(product._id, { moq: update.moq });
+                results.push({ sku: update.sku, success: true, type: "product" });
+            } else {
+                // Check variations
+                let variationUpdated = false;
+                const updatedVariations = product.variations.map((variation) => {
+                    const updatedOptions = variation.options.map((option) => {
+                        if (option.sku === update.sku) {
+                            variationUpdated = true;
+                            return { ...option, moq: update.moq };
+                        }
+                        return option;
+                    });
+                    return { ...variation, options: updatedOptions };
+                });
+
+                if (variationUpdated) {
+                    await ctx.db.patch(product._id, { variations: updatedVariations });
+                    results.push({ sku: update.sku, success: true, type: "variation" });
+                } else {
+                    results.push({ sku: update.sku, success: false, message: "SKU not found in product or variations" });
+                }
+            }
+        }
+        return results;
     },
 });

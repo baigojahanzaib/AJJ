@@ -25,13 +25,13 @@ const statusOptions: { id: OrderStatus; label: string; color: 'default' | 'succe
   { id: 'cancelled', label: 'Cancelled', color: 'danger' },
 ];
 
-export default function OrderDetailModal({ 
-  visible, 
-  order, 
-  onClose, 
+export default function OrderDetailModal({
+  visible,
+  order,
+  onClose,
   onEdit,
   onUpdateStatus,
-  mode = 'quick' 
+  mode = 'quick'
 }: OrderDetailModalProps) {
   const [viewMode, setViewMode] = useState<'quick' | 'view' | 'edit'>(mode);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
@@ -84,9 +84,9 @@ export default function OrderDetailModal({
           <Text style={styles.orderNumber}>{order.orderNumber}</Text>
           <Text style={styles.orderDate}>{formatDate(order.createdAt)}</Text>
         </View>
-        <Badge 
-          label={currentStatus?.label || order.status} 
-          variant={currentStatus?.color || 'default'} 
+        <Badge
+          label={currentStatus?.label || order.status}
+          variant={currentStatus?.color || 'default'}
         />
       </View>
 
@@ -103,7 +103,7 @@ export default function OrderDetailModal({
 
       <View style={styles.quickTotal}>
         <Text style={styles.quickTotalLabel}>Total</Text>
-        <Text style={styles.quickTotalValue}>${order.total.toFixed(2)}</Text>
+        <Text style={styles.quickTotalValue}>R{order.total.toFixed(2)}</Text>
       </View>
 
       <View style={styles.quickActions}>
@@ -132,9 +132,9 @@ export default function OrderDetailModal({
           <Text style={styles.orderNumber}>{order.orderNumber}</Text>
           <Text style={styles.orderDate}>{formatDate(order.createdAt)}</Text>
         </View>
-        <Badge 
-          label={currentStatus?.label || order.status} 
-          variant={currentStatus?.color || 'default'} 
+        <Badge
+          label={currentStatus?.label || order.status}
+          variant={currentStatus?.color || 'default'}
         />
       </View>
 
@@ -209,7 +209,7 @@ export default function OrderDetailModal({
                 )}
                 <View style={styles.itemPriceRow}>
                   <Text style={styles.itemQuantity}>Qty: {item.quantity}</Text>
-                  <Text style={styles.itemPrice}>${item.totalPrice.toFixed(2)}</Text>
+                  <Text style={styles.itemPrice}>R{item.totalPrice.toFixed(2)}</Text>
                 </View>
               </View>
             </View>
@@ -222,21 +222,21 @@ export default function OrderDetailModal({
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Subtotal</Text>
-            <Text style={styles.summaryValue}>${order.subtotal.toFixed(2)}</Text>
+            <Text style={styles.summaryValue}>R{order.subtotal.toFixed(2)}</Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>Tax</Text>
-            <Text style={styles.summaryValue}>${order.tax.toFixed(2)}</Text>
+            <Text style={styles.summaryValue}>R{order.tax.toFixed(2)}</Text>
           </View>
           {order.discount > 0 && (
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Discount</Text>
-              <Text style={[styles.summaryValue, styles.discountValue]}>-${order.discount.toFixed(2)}</Text>
+              <Text style={[styles.summaryValue, styles.discountValue]}>-R{order.discount.toFixed(2)}</Text>
             </View>
           )}
           <View style={[styles.summaryRow, styles.totalRow]}>
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>${order.total.toFixed(2)}</Text>
+            <Text style={styles.totalValue}>R{order.total.toFixed(2)}</Text>
           </View>
         </View>
       </View>
@@ -253,18 +253,18 @@ export default function OrderDetailModal({
 
       <View style={styles.detailSection}>
         <Text style={styles.sectionTitle}>Update Status</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.statusPicker}
           onPress={() => setShowStatusPicker(!showStatusPicker)}
         >
           <Text style={styles.statusPickerText}>
-            {selectedStatus 
-              ? statusOptions.find(s => s.id === selectedStatus)?.label 
+            {selectedStatus
+              ? statusOptions.find(s => s.id === selectedStatus)?.label
               : currentStatus?.label}
           </Text>
           <ChevronDown size={20} color={Colors.light.textSecondary} />
         </TouchableOpacity>
-        
+
         {showStatusPicker && (
           <View style={styles.statusOptions}>
             {statusOptions.map((status) => (

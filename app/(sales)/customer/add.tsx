@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { mockCustomers } from '@/mocks/customers';
+import { useData } from '@/contexts/DataContext';
 import Input from '@/components/Input';
 import Button from '@/components/Button';
 import ThemedAlert from '@/components/ThemedAlert';
@@ -21,6 +21,7 @@ interface AlertConfig {
 export default function AddCustomerPage() {
     const { editId } = useLocalSearchParams<{ editId?: string }>();
     const router = useRouter();
+    const { getCustomerById, addCustomer, updateCustomer } = useData();
     const isEditing = !!editId;
 
     const [formData, setFormData] = useState({
@@ -42,7 +43,7 @@ export default function AddCustomerPage() {
     // Load customer data if editing
     useEffect(() => {
         if (editId) {
-            const customer = mockCustomers.find(c => c.id === editId);
+            const customer = getCustomerById(editId as string);
             if (customer) {
                 setFormData({
                     name: customer.name,
@@ -53,13 +54,13 @@ export default function AddCustomerPage() {
                 });
             }
         }
-    }, [editId]);
+    }, [editId, getCustomerById]);
 
     const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
         setAlertConfig({ ...config, visible: true });
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!formData.name.trim() || !formData.phone.trim()) {
             showAlert({
                 title: 'Missing Information',
@@ -70,21 +71,49 @@ export default function AddCustomerPage() {
             return;
         }
 
-        // In production, this would update via context/state management
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        try {
+            if (isEditing && editId) {
+                await updateCustomer(editId as string, {
+                    name: formData.name,
+                    phone: formData.phone,
+                    email: formData.email,
+                    address: formData.address,
+                    company: formData.company,
+                });
+            } else {
+                await addCustomer({
+                    name: formData.name,
+                    phone: formData.phone,
+                    email: formData.email,
+                    address: formData.address,
+                    company: formData.company,
+                    isActive: true,
+                });
+            }
 
-        showAlert({
-            title: isEditing ? 'Customer Updated' : 'Customer Added',
-            message: isEditing
-                ? 'Customer information has been updated successfully.'
-                : 'New customer has been added successfully.',
-            type: 'success',
-            buttons: [{
-                text: 'OK',
-                style: 'default',
-                onPress: () => router.back(),
-            }],
-        });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+            showAlert({
+                title: isEditing ? 'Customer Updated' : 'Customer Added',
+                message: isEditing
+                    ? 'Customer information has been updated successfully.'
+                    : 'New customer has been added successfully.',
+                type: 'success',
+                buttons: [{
+                    text: 'OK',
+                    style: 'default',
+                    onPress: () => router.back(),
+                }],
+            });
+        } catch (error) {
+            console.error('Error saving customer:', error);
+            showAlert({
+                title: 'Error',
+                message: 'Failed to save customer. Please try again.',
+                type: 'error',
+                buttons: [{ text: 'OK', style: 'default' }],
+            });
+        }
     };
 
     return (

@@ -4,9 +4,9 @@ import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { 
-  LogOut, Bell, HelpCircle, ChevronRight, 
-  TrendingUp, Package, DollarSign, ClipboardList, Shield 
+import {
+  LogOut, Bell, HelpCircle, ChevronRight,
+  TrendingUp, Package, DollarSign, ClipboardList, Shield
 } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
@@ -52,8 +52,8 @@ export default function SalesProfile() {
       type: 'info',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Switch', 
+        {
+          text: 'Switch',
           style: 'default',
           onPress: async () => {
             await switchToAdminView();
@@ -72,8 +72,8 @@ export default function SalesProfile() {
       type: 'warning',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
+        {
+          text: 'Logout',
           style: 'destructive',
           onPress: async () => {
             await logout();
@@ -85,7 +85,7 @@ export default function SalesProfile() {
   };
 
   const formatCurrency = (value: number) => {
-    return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `R${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const performanceStats = [

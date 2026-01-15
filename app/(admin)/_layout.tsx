@@ -56,8 +56,15 @@ export default function AdminTabLayout() {
           href: null,
         }}
       />
+
       <Tabs.Screen
-        name="product/[id]"
+        name="ecwid-sync"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="export-reports"
         options={{
           href: null,
         }}

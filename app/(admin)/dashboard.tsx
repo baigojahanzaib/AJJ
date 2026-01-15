@@ -11,7 +11,7 @@ export default function AdminDashboard() {
   const { user } = useAuth();
 
   const formatCurrency = (value: number) => {
-    return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `R${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const recentOrders = orders.slice(0, 5);

@@ -34,7 +34,7 @@ export default function AdminProducts() {
   });
 
   const handleProductPress = (productId: string) => {
-    router.push(`/(admin)/product/${productId}`);
+    router.push(`/(admin)/products/${productId}`);
   };
 
   const handleAddProduct = () => {

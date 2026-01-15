@@ -26,7 +26,7 @@ export default function SalesCatalog() {
   }, [activeProducts, searchQuery, selectedCategory]);
 
   const handleProductPress = (productId: string) => {
-    router.push(`/(sales)/product/${productId}`);
+    router.push(`/(sales)/catalog/${productId}`);
   };
 
   return (
@@ -102,7 +102,7 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 0,
     paddingBottom: 16,
   },
   greeting: {

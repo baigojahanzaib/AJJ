@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "SalesRep Shopping App",
-    "slug": "salesrep-shopping-app",
+    "name": "e-order",
+    "slug": "e-order",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

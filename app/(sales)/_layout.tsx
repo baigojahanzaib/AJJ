@@ -1,4 +1,5 @@
 import { Tabs, Stack } from "expo-router";
+import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { Package, ShoppingCart, ClipboardList, User, Users } from "lucide-react-native";
 import Colors from "@/constants/colors";
 import { useCart } from "@/contexts/CartContext";
@@ -34,9 +35,21 @@ function TabsLayout() {
     >
       <Tabs.Screen
         name="catalog"
-        options={{
-          title: "Catalog",
-          tabBarIcon: ({ color, size }) => <Package size={size} color={color} />,
+        options={({ route }) => {
+          const routeName = getFocusedRouteNameFromRoute(route);
+          return {
+            title: "Catalog",
+            tabBarIcon: ({ color, size }) => <Package size={size} color={color} />,
+            tabBarStyle: ((routeName) => {
+              if (routeName === "[id]") {
+                return { display: "none" };
+              }
+              return {
+                backgroundColor: Colors.light.surface,
+                borderTopColor: Colors.light.borderLight,
+              };
+            })(routeName),
+          };
         }}
       />
       <Tabs.Screen
@@ -68,12 +81,7 @@ function TabsLayout() {
         }}
       />
       {/* Hide these from tab bar - they're accessed via navigation */}
-      <Tabs.Screen
-        name="product/[id]"
-        options={{
-          href: null,
-        }}
-      />
+
       <Tabs.Screen
         name="customer/[id]"
         options={{

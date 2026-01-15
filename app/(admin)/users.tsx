@@ -32,7 +32,7 @@ export default function AdminUsers() {
   const salesReps = users.filter(user => user.role === 'sales_rep');
 
   const filteredUsers = salesReps.filter(user => {
-    const matchesSearch = 
+    const matchesSearch =
       user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       user.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesFilter = filterActive === null || user.isActive === filterActive;
@@ -42,7 +42,7 @@ export default function AdminUsers() {
   const handleUserPress = (userId: string) => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
-    
+
     setSelectedUser(user);
     setShowUserActions(true);
   };
@@ -57,7 +57,7 @@ export default function AdminUsers() {
     setAlertConfig({
       visible: true,
       title: selectedUser.name,
-      message: `Email: ${selectedUser.email}\nPhone: ${selectedUser.phone}\nRole: ${selectedUser.role === 'admin' ? 'Admin' : 'Sales Rep'}\nOrders: ${userOrders.length}\nTotal Sales: $${totalSales.toFixed(2)}\nStatus: ${selectedUser.isActive ? 'Active' : 'Inactive'}\nJoined: ${new Date(selectedUser.createdAt).toLocaleDateString()}`,
+      message: `Email: ${selectedUser.email}\nPhone: ${selectedUser.phone}\nRole: ${selectedUser.role === 'admin' ? 'Admin' : 'Sales Rep'}\nOrders: ${userOrders.length}\nTotal Sales: R${totalSales.toFixed(2)}\nStatus: ${selectedUser.isActive ? 'Active' : 'Inactive'}\nJoined: ${new Date(selectedUser.createdAt).toLocaleDateString()}`,
       type: 'info',
       buttons: [{ text: 'Close', style: 'default' }],
     });
@@ -72,7 +72,7 @@ export default function AdminUsers() {
 
   const handleToggleStatus = () => {
     if (!selectedUser) return;
-    
+
     setShowUserActions(false);
     setAlertConfig({
       visible: true,
@@ -202,7 +202,7 @@ export default function AdminUsers() {
         renderItem={({ item }) => (
           <View style={styles.userItem}>
             <UserCard user={item} onPress={() => handleUserPress(item.id)} />
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.userEditBtn}
               onPress={() => {
                 setEditingUser(item);

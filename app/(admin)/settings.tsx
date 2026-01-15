@@ -3,9 +3,9 @@ import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { 
-  User, LogOut, Bell, Shield, HelpCircle, 
-  ChevronRight, Palette, Database, FileText, Eye 
+import {
+  User, LogOut, Bell, Shield, HelpCircle,
+  ChevronRight, Palette, Database, FileText, Eye, RefreshCw
 } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import Card from '@/components/Card';
@@ -42,8 +42,8 @@ export default function AdminSettings() {
       type: 'info',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Switch View', 
+        {
+          text: 'Switch View',
           style: 'default',
           onPress: async () => {
             await switchToUserView();
@@ -62,8 +62,8 @@ export default function AdminSettings() {
       type: 'warning',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Logout', 
+        {
+          text: 'Logout',
           style: 'destructive',
           onPress: async () => {
             await logout();
@@ -78,24 +78,16 @@ export default function AdminSettings() {
     {
       title: 'Account',
       items: [
-        { icon: User, label: 'Profile', onPress: () => showAlert('Profile', 'Profile editing coming soon') },
         { icon: Bell, label: 'Notifications', onPress: () => showAlert('Notifications', 'Notification settings coming soon') },
-        { icon: Shield, label: 'Security', onPress: () => showAlert('Security', 'Security settings coming soon') },
         { icon: Eye, label: 'View as User', onPress: handleSwitchToUserView, highlight: true },
       ],
     },
     {
       title: 'App',
       items: [
+        { icon: RefreshCw, label: 'Ecwid Sync', onPress: () => router.push('/(admin)/ecwid-sync'), highlight: true },
         { icon: Palette, label: 'Appearance', onPress: () => showAlert('Appearance', 'Theme settings coming soon') },
-        { icon: Database, label: 'Data Management', onPress: () => showAlert('Data', 'Data management coming soon') },
-        { icon: FileText, label: 'Export Reports', onPress: () => showAlert('Reports', 'Report export coming soon') },
-      ],
-    },
-    {
-      title: 'Support',
-      items: [
-        { icon: HelpCircle, label: 'Help Center', onPress: () => showAlert('Help', 'Help center coming soon') },
+        { icon: FileText, label: 'Export Reports', onPress: () => router.push('/(admin)/export-reports') },
       ],
     },
   ];

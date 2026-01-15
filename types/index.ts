@@ -29,6 +29,7 @@ export interface VariationOption {
   sku: string;
   stock: number;
   image?: string;
+  moq?: number;
 }
 
 export interface ProductVariation {
@@ -43,12 +44,14 @@ export interface Product {
   description: string;
   sku: string;
   basePrice: number;
+  compareAtPrice?: number;
   images: string[];
   categoryId: string;
   isActive: boolean;
   variations: ProductVariation[];
   stock: number;
   createdAt: string;
+  moq?: number;
 }
 
 export interface SelectedVariation {

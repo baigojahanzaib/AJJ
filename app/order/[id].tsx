@@ -6,7 +6,7 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import {
   ArrowLeft, User, Phone, Mail, MapPin, FileText, Calendar, Package,
-  ChevronDown, Edit3, Share2, RotateCcw, X, Check, Clock, Minus, Plus, Trash2
+  ChevronDown, Edit3, Share2, RotateCcw, X, Check, Clock, Minus, Plus, Trash2, Printer
 } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,6 +15,7 @@ import ThemedAlert from '@/components/ThemedAlert';
 import Input from '@/components/Input';
 import Colors from '@/constants/colors';
 import { OrderStatus, OrderItem } from '@/types';
+import { generateAndSharePDF } from '@/lib/pdf-generator';
 
 const statusOptions: { id: OrderStatus; label: string; color: 'default' | 'success' | 'warning' | 'danger' | 'info' }[] = [
   { id: 'pending', label: 'Pending', color: 'warning' },
@@ -111,7 +112,7 @@ export default function OrderDetailPage() {
   const handleShare = async () => {
     try {
       const itemsList = order.items.map(item =>
-        `• ${item.productName} x${item.quantity} - $${item.totalPrice.toFixed(2)}`
+        `• ${item.productName} x${item.quantity} - R${item.totalPrice.toFixed(2)}`
       ).join('\n');
 
       const message = `Order: ${order.orderNumber}
@@ -122,9 +123,9 @@ Phone: ${order.customerPhone}
 Items:
 ${itemsList}
 
-Subtotal: $${order.subtotal.toFixed(2)}
-Tax: $${order.tax.toFixed(2)}
-${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: $${order.total.toFixed(2)}`;
+Subtotal: R${order.subtotal.toFixed(2)}
+Tax: R${order.tax.toFixed(2)}
+${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: R${order.total.toFixed(2)}`;
 
       if (Platform.OS === 'web') {
         await navigator.clipboard.writeText(message);
@@ -141,6 +142,22 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
       Haptics.selectionAsync();
     } catch (error) {
       console.error('[Order] Share error:', error);
+    }
+  };
+
+  const handlePrint = async () => {
+    try {
+      await generateAndSharePDF(order);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      setAlertConfig({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to generate PDF.',
+        type: 'error',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
     }
   };
 
@@ -316,7 +333,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
                 />
                 <View style={styles.editItemInfo}>
                   <Text style={styles.editItemName} numberOfLines={1}>{item.productName}</Text>
-                  <Text style={styles.editItemPrice}>${item.unitPrice.toFixed(2)} each</Text>
+                  <Text style={styles.editItemPrice}>R{item.unitPrice.toFixed(2)} each</Text>
                   <View style={styles.editItemActions}>
                     <View style={styles.quantityControls}>
                       <TouchableOpacity
@@ -338,7 +355,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
                     </TouchableOpacity>
                   </View>
                 </View>
-                <Text style={styles.editItemTotal}>${item.totalPrice.toFixed(2)}</Text>
+                <Text style={styles.editItemTotal}>R{item.totalPrice.toFixed(2)}</Text>
               </View>
             ))}
           </View>
@@ -346,7 +363,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
           <View style={styles.editSection}>
             <Text style={styles.editSectionTitle}>Discount</Text>
             <View style={styles.discountInput}>
-              <Text style={styles.discountCurrency}>$</Text>
+              <Text style={styles.discountCurrency}>R</Text>
               <TextInput
                 style={styles.discountField}
                 value={editDiscount}
@@ -372,7 +389,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
           <View style={styles.editSummary}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Subtotal</Text>
-              <Text style={styles.summaryValue}>${editedTotals.subtotal.toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>R{editedTotals.subtotal.toFixed(2)}</Text>
             </View>
             {parseFloat(editDiscount) > 0 && (
               <View style={styles.summaryRow}>
@@ -384,11 +401,11 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
             )}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Tax (9%)</Text>
-              <Text style={styles.summaryValue}>${editedTotals.tax.toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>R{editedTotals.tax.toFixed(2)}</Text>
             </View>
             <View style={[styles.summaryRow, styles.totalRow]}>
               <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>${editedTotals.total.toFixed(2)}</Text>
+              <Text style={styles.totalValue}>R{editedTotals.total.toFixed(2)}</Text>
             </View>
           </View>
 
@@ -410,6 +427,9 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.headerBtn} onPress={handleShare}>
             <Share2 size={20} color={Colors.light.text} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.headerBtn} onPress={handlePrint}>
+            <Printer size={20} color={Colors.light.text} />
           </TouchableOpacity>
           {canEdit && (
             <TouchableOpacity style={styles.headerBtn} onPress={openEditModal}>
@@ -538,7 +558,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
                   )}
                   <View style={styles.itemPriceRow}>
                     <Text style={styles.itemQuantity}>Qty: {item.quantity}</Text>
-                    <Text style={styles.itemPrice}>${item.totalPrice.toFixed(2)}</Text>
+                    <Text style={styles.itemPrice}>R{item.totalPrice.toFixed(2)}</Text>
                   </View>
                 </View>
               </View>
@@ -551,11 +571,11 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
           <View style={styles.card}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Subtotal</Text>
-              <Text style={styles.summaryValue}>${order.subtotal.toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>R{order.subtotal.toFixed(2)}</Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Tax</Text>
-              <Text style={styles.summaryValue}>${order.tax.toFixed(2)}</Text>
+              <Text style={styles.summaryValue}>R{order.tax.toFixed(2)}</Text>
             </View>
             {order.discount > 0 && (
               <View style={styles.summaryRow}>
@@ -567,7 +587,7 @@ ${order.discount > 0 ? `Discount: -$${order.discount.toFixed(2)}\n` : ''}Total: 
             )}
             <View style={[styles.summaryRow, styles.totalRow]}>
               <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>${order.total.toFixed(2)}</Text>
+              <Text style={styles.totalValue}>R{order.total.toFixed(2)}</Text>
             </View>
           </View>
         </View>

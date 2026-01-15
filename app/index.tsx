@@ -11,7 +11,7 @@ import Colors from '@/constants/colors';
 export default function LoginScreen() {
   const router = useRouter();
   const { login, isLoading: authLoading, isAuthenticated, user, isViewingAsUser } = useAuth();
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -58,7 +58,7 @@ export default function LoginScreen() {
 
     try {
       const result = await login(email.trim(), password);
-      
+
       if (result.success) {
         console.log('[Login] Success, navigating...');
       } else {
@@ -87,8 +87,8 @@ export default function LoginScreen() {
             <View style={styles.iconContainer}>
               <ShoppingBag size={40} color={Colors.light.primary} />
             </View>
-            <Text style={styles.title}>SalesFlow</Text>
-            <Text style={styles.subtitle}>Sales Representative Portal</Text>
+            <Text style={styles.title}>e-order</Text>
+            <Text style={styles.subtitle}>Sales Platform</Text>
           </View>
 
           <View style={styles.form}>
@@ -122,34 +122,6 @@ export default function LoginScreen() {
               size="lg"
               style={styles.loginButton}
             />
-          </View>
-
-          <View style={styles.demoSection}>
-            <Text style={styles.demoTitle}>Demo Accounts</Text>
-            <TouchableOpacity
-              style={styles.demoAccount}
-              onPress={() => {
-                setEmail('admin@company.com');
-                setPassword('admin123');
-              }}
-            >
-              <View style={styles.demoBadge}>
-                <Text style={styles.demoBadgeText}>Admin</Text>
-              </View>
-              <Text style={styles.demoEmail}>admin@company.com</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.demoAccount}
-              onPress={() => {
-                setEmail('sarah@company.com');
-                setPassword('sales123');
-              }}
-            >
-              <View style={[styles.demoBadge, styles.salesBadge]}>
-                <Text style={styles.demoBadgeText}>Sales</Text>
-              </View>
-              <Text style={styles.demoEmail}>sarah@company.com</Text>
-            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -216,44 +188,5 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginTop: 8,
-  },
-  demoSection: {
-    backgroundColor: Colors.light.surfaceSecondary,
-    borderRadius: 16,
-    padding: 16,
-  },
-  demoTitle: {
-    fontSize: 13,
-    fontWeight: '600' as const,
-    color: Colors.light.textTertiary,
-    marginBottom: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  demoAccount: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
-  },
-  demoBadge: {
-    backgroundColor: Colors.light.primary,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    marginRight: 12,
-  },
-  salesBadge: {
-    backgroundColor: Colors.light.accent,
-  },
-  demoBadgeText: {
-    fontSize: 12,
-    fontWeight: '600' as const,
-    color: Colors.light.primaryForeground,
-  },
-  demoEmail: {
-    fontSize: 14,
-    color: Colors.light.textSecondary,
   },
 });

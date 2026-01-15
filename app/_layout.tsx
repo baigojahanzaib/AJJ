@@ -9,12 +9,18 @@ import { convex } from "@/lib/convex";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { DataProvider } from "@/contexts/DataContext";
 import { CartProvider } from "@/contexts/CartContext";
+import { OfflineProvider } from "@/contexts/OfflineContext";
+import { OfflineBanner } from "@/components/OfflineBanner";
 
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
+import { useProtectedRoute } from "@/hooks/useProtectedRoute";
+
 function RootLayoutNav() {
+  useProtectedRoute();
+
   return (
     <Stack screenOptions={{ headerBackTitle: "Back", headerShown: false }}>
       <Stack.Screen name="index" />
@@ -24,6 +30,8 @@ function RootLayoutNav() {
     </Stack>
   );
 }
+
+import { NotificationProvider } from "@/contexts/NotificationContext";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -35,13 +43,18 @@ export default function RootLayout() {
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
-            <AuthProvider>
-              <DataProvider>
-                <CartProvider>
-                  <RootLayoutNav />
-                </CartProvider>
-              </DataProvider>
-            </AuthProvider>
+            <NotificationProvider>
+              <AuthProvider>
+                <OfflineProvider>
+                  <DataProvider>
+                    <CartProvider>
+                      <RootLayoutNav />
+                      <OfflineBanner />
+                    </CartProvider>
+                  </DataProvider>
+                </OfflineProvider>
+              </AuthProvider>
+            </NotificationProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>
       </trpc.Provider>

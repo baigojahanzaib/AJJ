@@ -85,7 +85,7 @@ export default function OrderCard({ order, onPress, showSalesRep = false, onStat
   };
 
   const formatPrice = (price: number) => {
-    return `$${price.toFixed(2)}`;
+    return `R${price.toFixed(2)}`;
   };
 
   const status = statusConfig[order.status];
@@ -112,7 +112,7 @@ export default function OrderCard({ order, onPress, showSalesRep = false, onStat
           <Text style={styles.date}>{formatDate(order.createdAt)}</Text>
         </View>
         {onStatusChange ? (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.statusButton}
             onPress={handleStatusPress}
             activeOpacity={0.7}
@@ -124,7 +124,7 @@ export default function OrderCard({ order, onPress, showSalesRep = false, onStat
           <Badge label={status.label} variant={status.variant} />
         )}
       </View>
-      
+
       <View style={styles.body}>
         <Text style={styles.customerName}>{order.customerName}</Text>
         {showSalesRep && (
@@ -151,13 +151,13 @@ export default function OrderCard({ order, onPress, showSalesRep = false, onStat
         statusBarTranslucent
       >
         <View style={styles.modalContainer}>
-          <Animated.View 
+          <Animated.View
             style={[styles.dropdownOverlay, { opacity: fadeAnim }]}
           >
             <Pressable style={StyleSheet.absoluteFill} onPress={closeDropdown} />
           </Animated.View>
-          
-          <Animated.View 
+
+          <Animated.View
             style={[
               styles.dropdownContainer,
               { transform: [{ translateY: slideAnim }] }
@@ -166,7 +166,7 @@ export default function OrderCard({ order, onPress, showSalesRep = false, onStat
             <View style={styles.dropdownHandle} />
             <Text style={styles.dropdownTitle}>Update Status</Text>
             <Text style={styles.dropdownSubtitle}>{order.orderNumber}</Text>
-            
+
             <View style={styles.statusGrid}>
               {allStatuses.map((statusKey) => {
                 const config = statusConfig[statusKey];
@@ -204,7 +204,7 @@ export default function OrderCard({ order, onPress, showSalesRep = false, onStat
               })}
             </View>
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.cancelButton}
               onPress={closeDropdown}
               activeOpacity={0.7}

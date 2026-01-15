@@ -3,19 +3,17 @@ import { StyleSheet, Text, View, FlatList, TouchableOpacity, TextInput } from 'r
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { UserPlus, Search, X, ChevronRight } from 'lucide-react-native';
-import { mockCustomers } from '@/mocks/customers';
+import { useData } from '@/contexts/DataContext';
 import { Customer } from '@/types';
 import Button from '@/components/Button';
 import Colors from '@/constants/colors';
 
 export default function SalesCustomers() {
   const router = useRouter();
-  const [customers] = useState<Customer[]>(mockCustomers);
+  const { activeCustomers } = useData();
   const [searchQuery, setSearchQuery] = useState('');
 
-  const activeCustomers = useMemo(() => {
-    return customers.filter(c => c.isActive);
-  }, [customers]);
+  // No need to memoize activeCustomers since it comes from DataContext already filtered for isActive
 
   const filteredCustomers = useMemo(() => {
     if (!searchQuery.trim()) return activeCustomers;

@@ -7,6 +7,7 @@ const variationOptionValidator = v.object({
     name: v.string(),
     priceModifier: v.number(),
     sku: v.string(),
+    moq: v.optional(v.number()),
     stock: v.number(),
     image: v.optional(v.string()),
 });
@@ -67,22 +68,29 @@ export default defineSchema({
         parentId: v.optional(v.string()),
         isActive: v.boolean(),
         createdAt: v.string(),
-    }),
+        // Ecwid integration
+        ecwidId: v.optional(v.number()),
+    }).index("by_ecwidId", ["ecwidId"]),
 
     products: defineTable({
         name: v.string(),
         description: v.string(),
         sku: v.string(),
         basePrice: v.number(),
+        compareAtPrice: v.optional(v.number()),
         images: v.array(v.string()),
         categoryId: v.string(),
         isActive: v.boolean(),
         variations: v.array(productVariationValidator),
         stock: v.number(),
+        moq: v.optional(v.number()),
         createdAt: v.string(),
+        // Ecwid integration
+        ecwidId: v.optional(v.number()),
     })
         .index("by_category", ["categoryId"])
-        .index("by_sku", ["sku"]),
+        .index("by_sku", ["sku"])
+        .index("by_ecwidId", ["ecwidId"]),
 
     customers: defineTable({
         name: v.string(),
@@ -124,4 +132,21 @@ export default defineSchema({
         .index("by_salesRep", ["salesRepId"])
         .index("by_status", ["status"])
         .index("by_orderNumber", ["orderNumber"]),
+
+    // Ecwid integration settings (singleton table - only one record)
+    ecwidSettings: defineTable({
+        storeId: v.string(),
+        accessToken: v.string(),
+        autoSyncEnabled: v.boolean(),
+        syncIntervalHours: v.number(),
+        lastSyncAt: v.optional(v.string()),
+        lastSyncStatus: v.optional(v.union(
+            v.literal("success"),
+            v.literal("error"),
+            v.literal("in_progress")
+        )),
+        lastSyncMessage: v.optional(v.string()),
+        lastSyncProductCount: v.optional(v.number()),
+        lastSyncCategoryCount: v.optional(v.number()),
+    }),
 });
