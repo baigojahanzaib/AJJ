@@ -1,16 +1,103 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../convex/_generated/api';
 import { Product, Category, Order, User, DashboardStats, OrderEditLog } from '@/types';
-import { mockProducts } from '@/mocks/products';
-import { mockCategories } from '@/mocks/categories';
-import { mockOrders, generateOrderNumber } from '@/mocks/orders';
-import { mockUsers } from '@/mocks/users';
+import { Id } from '../convex/_generated/dataModel';
+
+// Helper to map Convex document to our types
+function mapProduct(doc: any): Product {
+  return {
+    id: doc._id,
+    name: doc.name,
+    description: doc.description,
+    sku: doc.sku,
+    basePrice: doc.basePrice,
+    images: doc.images,
+    categoryId: doc.categoryId,
+    isActive: doc.isActive,
+    variations: doc.variations,
+    stock: doc.stock,
+    createdAt: doc.createdAt,
+  };
+}
+
+function mapCategory(doc: any): Category {
+  return {
+    id: doc._id,
+    name: doc.name,
+    description: doc.description,
+    image: doc.image,
+    parentId: doc.parentId,
+    isActive: doc.isActive,
+    createdAt: doc.createdAt,
+  };
+}
+
+function mapOrder(doc: any): Order {
+  return {
+    id: doc._id,
+    orderNumber: doc.orderNumber,
+    salesRepId: doc.salesRepId,
+    salesRepName: doc.salesRepName,
+    customerName: doc.customerName,
+    customerPhone: doc.customerPhone,
+    customerEmail: doc.customerEmail,
+    customerAddress: doc.customerAddress,
+    items: doc.items,
+    subtotal: doc.subtotal,
+    tax: doc.tax,
+    discount: doc.discount,
+    total: doc.total,
+    status: doc.status,
+    notes: doc.notes,
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    previousVersion: doc.previousVersion,
+    editLog: doc.editLog,
+  };
+}
+
+function mapUser(doc: any): User {
+  return {
+    id: doc._id,
+    email: doc.email,
+    password: '',
+    name: doc.name,
+    role: doc.role,
+    phone: doc.phone,
+    avatar: doc.avatar,
+    isActive: doc.isActive,
+    createdAt: doc.createdAt,
+  };
+}
 
 export const [DataProvider, useData] = createContextHook(() => {
-  const [products, setProducts] = useState<Product[]>(mockProducts);
-  const [categories, setCategories] = useState<Category[]>(mockCategories);
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
-  const [users, setUsers] = useState<User[]>(mockUsers);
+  // Convex queries
+  const convexProducts = useQuery(api.products.list) ?? [];
+  const convexCategories = useQuery(api.categories.list) ?? [];
+  const convexOrders = useQuery(api.orders.list) ?? [];
+  const convexUsers = useQuery(api.users.list) ?? [];
+  const convexDashboardStats = useQuery(api.orders.getDashboardStats);
+
+  // Convex mutations
+  const createProductMutation = useMutation(api.products.create);
+  const updateProductMutation = useMutation(api.products.update);
+  const removeProductMutation = useMutation(api.products.remove);
+  const createCategoryMutation = useMutation(api.categories.create);
+  const updateCategoryMutation = useMutation(api.categories.update);
+  const createOrderMutation = useMutation(api.orders.create);
+  const updateOrderStatusMutation = useMutation(api.orders.updateStatus);
+  const updateOrderMutation = useMutation(api.orders.update);
+  const undoOrderEditMutation = useMutation(api.orders.undoEdit);
+  const createUserMutation = useMutation(api.users.create);
+  const updateUserMutation = useMutation(api.users.update);
+
+  // Map Convex data to our types
+  const products = useMemo(() => convexProducts.map(mapProduct), [convexProducts]);
+  const categories = useMemo(() => convexCategories.map(mapCategory), [convexCategories]);
+  const orders = useMemo(() => convexOrders.map(mapOrder), [convexOrders]);
+  const users = useMemo(() => convexUsers.map(mapUser), [convexUsers]);
 
   const activeProducts = useMemo(() => products.filter(p => p.isActive), [products]);
   const activeCategories = useMemo(() => categories.filter(c => c.isActive), [categories]);
@@ -48,116 +135,134 @@ export const [DataProvider, useData] = createContextHook(() => {
     );
   }, [activeProducts]);
 
-  const addProduct = useCallback((product: Omit<Product, 'id' | 'createdAt'>) => {
-    const newProduct: Product = {
-      ...product,
-      id: `prod-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setProducts(prev => [...prev, newProduct]);
-    return newProduct;
-  }, []);
+  const addProduct = useCallback(async (product: Omit<Product, 'id' | 'createdAt'>) => {
+    const id = await createProductMutation({
+      name: product.name,
+      description: product.description,
+      sku: product.sku,
+      basePrice: product.basePrice,
+      images: product.images,
+      categoryId: product.categoryId,
+      isActive: product.isActive,
+      variations: product.variations,
+      stock: product.stock,
+    });
+    return { ...product, id: id as string, createdAt: new Date().toISOString() };
+  }, [createProductMutation]);
 
-  const updateProduct = useCallback((id: string, updates: Partial<Product>) => {
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
-  }, []);
+  const updateProduct = useCallback(async (id: string, updates: Partial<Product>) => {
+    await updateProductMutation({
+      id: id as Id<"products">,
+      ...updates,
+    });
+  }, [updateProductMutation]);
 
-  const deleteProduct = useCallback((id: string) => {
-    setProducts(prev => prev.filter(p => p.id !== id));
-  }, []);
+  const deleteProduct = useCallback(async (id: string) => {
+    await removeProductMutation({ id: id as Id<"products"> });
+  }, [removeProductMutation]);
 
-  const addCategory = useCallback((category: Omit<Category, 'id' | 'createdAt'>) => {
-    const newCategory: Category = {
-      ...category,
-      id: `cat-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setCategories(prev => [...prev, newCategory]);
-    return newCategory;
-  }, []);
+  const addCategory = useCallback(async (category: Omit<Category, 'id' | 'createdAt'>) => {
+    const id = await createCategoryMutation({
+      name: category.name,
+      description: category.description,
+      image: category.image,
+      parentId: category.parentId,
+      isActive: category.isActive,
+    });
+    return { ...category, id: id as string, createdAt: new Date().toISOString() };
+  }, [createCategoryMutation]);
 
-  const updateCategory = useCallback((id: string, updates: Partial<Category>) => {
-    setCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-  }, []);
+  const updateCategory = useCallback(async (id: string, updates: Partial<Category>) => {
+    await updateCategoryMutation({
+      id: id as Id<"categories">,
+      ...updates,
+    });
+  }, [updateCategoryMutation]);
 
-  const addOrder = useCallback((orderData: Omit<Order, 'id' | 'orderNumber' | 'createdAt' | 'updatedAt'>) => {
-    const newOrder: Order = {
+  const addOrder = useCallback(async (orderData: Omit<Order, 'id' | 'orderNumber' | 'createdAt' | 'updatedAt'>) => {
+    const id = await createOrderMutation({
+      salesRepId: orderData.salesRepId,
+      salesRepName: orderData.salesRepName,
+      customerName: orderData.customerName,
+      customerPhone: orderData.customerPhone,
+      customerEmail: orderData.customerEmail,
+      customerAddress: orderData.customerAddress,
+      items: orderData.items,
+      subtotal: orderData.subtotal,
+      tax: orderData.tax,
+      discount: orderData.discount,
+      total: orderData.total,
+      status: orderData.status,
+      notes: orderData.notes,
+    });
+
+    const now = new Date().toISOString();
+    const orderNumber = `ORD-${new Date().getFullYear()}-${(orders.length + 1).toString().padStart(4, '0')}`;
+
+    console.log('[Data] New order created:', orderNumber);
+    return {
       ...orderData,
-      id: `ord-${Date.now()}`,
-      orderNumber: generateOrderNumber(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      id: id as string,
+      orderNumber,
+      createdAt: now,
+      updatedAt: now,
     };
-    setOrders(prev => [...prev, newOrder]);
-    console.log('[Data] New order created:', newOrder.orderNumber);
-    return newOrder;
-  }, []);
+  }, [createOrderMutation, orders.length]);
 
-  const updateOrderStatus = useCallback((id: string, status: Order['status']) => {
-    setOrders(prev => prev.map(o => o.id === id ? { ...o, status, updatedAt: new Date().toISOString() } : o));
-  }, []);
+  const updateOrderStatus = useCallback(async (id: string, status: Order['status']) => {
+    await updateOrderStatusMutation({
+      id: id as Id<"orders">,
+      status,
+    });
+  }, [updateOrderStatusMutation]);
 
-  const updateOrder = useCallback((id: string, updates: Partial<Order>, editedBy: string, editedByName: string, changeDescription: string) => {
-    setOrders(prev => prev.map(o => {
-      if (o.id !== id) return o;
-      
-      const { previousVersion: _, editLog: __, ...currentOrderWithoutHistory } = o;
-      
-      const newEditLog: OrderEditLog = {
-        editedAt: new Date().toISOString(),
-        editedBy,
-        editedByName,
-        changes: changeDescription,
-      };
-      
-      return {
-        ...o,
-        ...updates,
-        updatedAt: new Date().toISOString(),
-        previousVersion: currentOrderWithoutHistory as Omit<Order, 'previousVersion'>,
-        editLog: [...(o.editLog || []), newEditLog],
-      };
-    }));
+  const updateOrder = useCallback(async (id: string, updates: Partial<Order>, editedBy: string, editedByName: string, changeDescription: string) => {
+    await updateOrderMutation({
+      id: id as Id<"orders">,
+      editedBy,
+      editedByName,
+      changeDescription,
+      ...updates,
+    });
     console.log('[Data] Order updated:', id, changeDescription);
-  }, []);
+  }, [updateOrderMutation]);
 
-  const undoOrderEdit = useCallback((id: string) => {
-    setOrders(prev => prev.map(o => {
-      if (o.id !== id || !o.previousVersion) return o;
-      
-      const restoredOrder: Order = {
-        ...o.previousVersion,
-        updatedAt: new Date().toISOString(),
-        editLog: o.editLog?.slice(0, -1),
-        previousVersion: undefined,
-      };
-      
-      console.log('[Data] Order edit undone:', id);
-      return restoredOrder;
-    }));
-  }, []);
+  const undoOrderEdit = useCallback(async (id: string) => {
+    await undoOrderEditMutation({ id: id as Id<"orders"> });
+    console.log('[Data] Order edit undone:', id);
+  }, [undoOrderEditMutation]);
 
-  const addUser = useCallback((user: Omit<User, 'id' | 'createdAt'>) => {
-    const newUser: User = {
-      ...user,
-      id: `user-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setUsers(prev => [...prev, newUser]);
-    return newUser;
-  }, []);
+  const addUser = useCallback(async (user: Omit<User, 'id' | 'createdAt'>) => {
+    const id = await createUserMutation({
+      email: user.email,
+      password: user.password,
+      name: user.name,
+      role: user.role,
+      phone: user.phone,
+      avatar: user.avatar,
+      isActive: user.isActive,
+    });
+    return { ...user, id: id as string, createdAt: new Date().toISOString() };
+  }, [createUserMutation]);
 
-  const updateUser = useCallback((id: string, updates: Partial<User>) => {
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
-  }, []);
+  const updateUser = useCallback(async (id: string, updates: Partial<User>) => {
+    await updateUserMutation({
+      id: id as Id<"users">,
+      ...updates,
+    });
+  }, [updateUserMutation]);
 
   const dashboardStats: DashboardStats = useMemo(() => {
+    if (convexDashboardStats) {
+      return convexDashboardStats;
+    }
+    // Fallback calculation if query hasn't loaded yet
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    
+
     const ordersThisMonth = orders.filter(o => new Date(o.createdAt) >= startOfMonth);
     const pendingOrders = orders.filter(o => o.status === 'pending').length;
-    
+
     return {
       totalOrders: orders.length,
       totalRevenue: orders.reduce((sum, o) => sum + o.total, 0),
@@ -167,7 +272,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       ordersThisMonth: ordersThisMonth.length,
       revenueThisMonth: ordersThisMonth.reduce((sum, o) => sum + o.total, 0),
     };
-  }, [orders, products, users]);
+  }, [convexDashboardStats, orders, products, users]);
 
   return {
     products,
