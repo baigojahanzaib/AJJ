@@ -20,13 +20,6 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
     return Math.round(((compare - base) / compare) * 100);
   };
 
-  const isNew = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays <= 7;
-  };
 
   if (variant === 'list') {
     return (
@@ -38,9 +31,11 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
         />
         <View style={styles.listContent}>
           <Text style={styles.listName} numberOfLines={2}>{product.name}</Text>
-          <Text style={styles.sku}>{product.sku}</Text>
-          <View style={styles.listFooter}>
+          <View style={styles.skuPriceRow}>
+            <Text style={styles.sku}>{product.sku}</Text>
             <Text style={styles.price}>{formatPrice(product.basePrice)}</Text>
+          </View>
+          <View style={styles.listFooter}>
             {product.variations.length > 0 && (
               <Badge label={`${product.variations.length} options`} size="sm" />
             )}
@@ -59,7 +54,7 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
           contentFit="cover"
         />
 
-        {/* Top Left Badges: Inactive, Sale, New */}
+        {/* Top Left Badges: Inactive, Sale, New, Ribbon */}
         <View style={styles.topLeftBadges}>
           {!product.isActive && (
             <View style={[styles.badge, styles.badgeInactive]}>
@@ -73,21 +68,16 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
               </Text>
             </View>
           )}
-          {product.isActive &&
-            (!product.compareAtPrice || product.compareAtPrice <= product.basePrice) &&
-            isNew(product.createdAt) && (
-              <View style={[styles.badge, styles.badgeNew]}>
-                <Text style={styles.badgeText}>NEW</Text>
-              </View>
-            )}
+          {product.isActive && product.ribbon && (
+            <View style={[
+              styles.badge,
+              { backgroundColor: product.ribbonColor || '#FF6B00' }
+            ]}>
+              <Text style={styles.badgeText}>{product.ribbon}</Text>
+            </View>
+          )}
         </View>
 
-        {/* Top Right: Variations Indicator */}
-        {product.variations.length > 0 && (
-          <View style={styles.variationBadge}>
-            <Text style={styles.variationText}>+{product.variations.length} Options</Text>
-          </View>
-        )}
       </View>
       <View style={styles.gridContent}>
         <Text style={styles.gridName} numberOfLines={2}>{product.name}</Text>
@@ -96,9 +86,6 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
           <Text style={styles.price}>{formatPrice(product.basePrice)}</Text>
           {product.compareAtPrice && product.compareAtPrice > product.basePrice && (
             <Text style={styles.oldPrice}>{formatPrice(product.compareAtPrice)}</Text>
-          )}
-          {product.moq && product.moq > 1 && (
-            <Text style={styles.moqText}>MOQ: {product.moq}</Text>
           )}
         </View>
       </View>
@@ -145,28 +132,11 @@ const styles = StyleSheet.create({
   badgeSale: {
     backgroundColor: Colors.light.primary,
   },
-  badgeNew: {
-    backgroundColor: Colors.light.secondary,
-  },
   badgeText: {
     color: '#ffffff',
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
-  },
-  variationBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  variationText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '600',
   },
   gridContent: {
     padding: 12,
@@ -181,12 +151,12 @@ const styles = StyleSheet.create({
   sku: {
     fontSize: 12,
     color: Colors.light.textTertiary,
-    marginBottom: 8,
   },
   priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    marginTop: 8,
   },
   price: {
     fontSize: 16,
@@ -214,10 +184,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 3,
+    minHeight: 120, // Added minHeight
   },
   listImage: {
     width: 100,
-    height: 100,
+    height: '100%', // Changed to 100% to fill container
     backgroundColor: Colors.light.surfaceSecondary,
   },
   listContent: {
@@ -231,10 +202,16 @@ const styles = StyleSheet.create({
     color: Colors.light.text,
     marginBottom: 4,
   },
+  skuPriceRow: { // Added
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12, // Gap between SKU and Price
+    marginBottom: 4,
+  },
   listFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 8,
+    marginTop: 4, // Adjusted top margin
   },
 });

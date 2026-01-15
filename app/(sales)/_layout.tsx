@@ -3,7 +3,7 @@ import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { Package, ShoppingCart, ClipboardList, User, Users } from "lucide-react-native";
 import Colors from "@/constants/colors";
 import { useCart } from "@/contexts/CartContext";
-import { View, Text, StyleSheet } from "react-native";
+import { View, Text, StyleSheet, Platform } from "react-native";
 
 function CartTabIcon({ color, size }: { color: string; size: number }) {
   const { itemCount } = useCart();
@@ -30,6 +30,11 @@ function TabsLayout() {
         tabBarStyle: {
           backgroundColor: Colors.light.surface,
           borderTopColor: Colors.light.borderLight,
+          ...(Platform.OS === 'android' ? {
+            height: 85,
+            paddingBottom: 35,
+            paddingTop: 5,
+          } : {}),
         },
       }}
     >
@@ -47,6 +52,11 @@ function TabsLayout() {
               return {
                 backgroundColor: Colors.light.surface,
                 borderTopColor: Colors.light.borderLight,
+                ...(Platform.OS === 'android' ? {
+                  height: 85,
+                  paddingBottom: 35,
+                  paddingTop: 5,
+                } : {}),
               };
             })(routeName),
           };

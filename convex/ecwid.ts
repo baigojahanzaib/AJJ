@@ -201,6 +201,8 @@ export const upsertProduct = internalMutation({
             })),
         })),
         stock: v.number(),
+        ribbon: v.optional(v.string()),
+        ribbonColor: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         // Check if product exists by ecwidId
@@ -246,6 +248,8 @@ export const upsertProduct = internalMutation({
                 isActive: args.isActive,
                 variations: args.variations,
                 stock: args.stock,
+                ribbon: args.ribbon,
+                ribbonColor: args.ribbonColor,
             });
             return existing._id;
         } else {
@@ -260,6 +264,8 @@ export const upsertProduct = internalMutation({
                 isActive: args.isActive,
                 variations: args.variations,
                 stock: args.stock,
+                ribbon: args.ribbon,
+                ribbonColor: args.ribbonColor,
                 createdAt: new Date().toISOString(),
                 ecwidId: args.ecwidId,
             });
@@ -405,6 +411,8 @@ export const fullSync = action({
                         isActive: prod.enabled !== false,
                         variations,
                         stock: prod.quantity || 0,
+                        ribbon: prod.ribbon?.text,
+                        ribbonColor: prod.ribbon?.color,
                     });
                     productCount++;
                 }

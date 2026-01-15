@@ -310,7 +310,7 @@ export default function ProductDetailPage() {
                     </View>
                 </View>
                 <Button
-                    title={`Add to Cart • R${(calculatePrice() * quantity).toFixed(2)}`}
+                    title={`Add to Cart • R${calculatePrice().toFixed(2)}`}
                     onPress={handleAddToCart}
                     icon={<ShoppingCart size={20} color={Colors.light.primaryForeground} />}
                     fullWidth

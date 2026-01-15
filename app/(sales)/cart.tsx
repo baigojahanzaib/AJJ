@@ -31,13 +31,13 @@ export default function SalesCart() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { items, customerInfo, notes, subtotal, tax, total, itemCount, setCustomerInfo, setNotes, updateQuantity, removeItem, clearCart } = useCart();
-  const { addOrder, users } = useData();
+  const { addOrder, addCustomer, users } = useData();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [customerModalStep, setCustomerModalStep] = useState<CustomerModalStep>('list');
   const [customerSearch, setCustomerSearch] = useState('');
-  const [, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [tempCustomerInfo, setTempCustomerInfo] = useState({
     name: '',
     phone: '',
@@ -158,7 +158,7 @@ export default function SalesCart() {
 
   const handleConfirmOrder = () => {
     if (!confirmedCustomer) return;
-    handleSubmitOrder(null, confirmedCustomer);
+    handleSubmitOrder(selectedCustomer, confirmedCustomer);
   };
 
   const handleSubmitOrder = async (customer?: Customer | null, newCustomerData?: typeof tempCustomerInfo) => {
@@ -179,6 +179,24 @@ export default function SalesCart() {
     setIsSubmitting(true);
 
     try {
+      // If we don't have a selected customer (meaning we created a new one), save it to the DB
+      if (!customer && newCustomerData) {
+        try {
+          await addCustomer({
+            name: newCustomerData.name,
+            phone: newCustomerData.phone,
+            email: newCustomerData.email,
+            address: newCustomerData.address,
+            isActive: true,
+          });
+          console.log('[Cart] New customer created during order submission');
+        } catch (err) {
+          console.error('[Cart] Error creating customer:', err);
+          // We continue with order creation even if customer save fails? 
+          // Probably better to warn but for now let's proceed so the order isn't lost
+        }
+      }
+
       const orderItems = items.map(item => ({
         id: item.id,
         productId: item.product.id,
@@ -191,7 +209,7 @@ export default function SalesCart() {
         totalPrice: item.totalPrice,
       }));
 
-      const newOrder = addOrder({
+      const newOrder = await addOrder({
         salesRepId: user?.id || '',
         salesRepName: user?.name || '',
         customerName: customerData.name,

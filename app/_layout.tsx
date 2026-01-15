@@ -11,12 +11,15 @@ import { DataProvider } from "@/contexts/DataContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { OfflineProvider } from "@/contexts/OfflineContext";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { RemoteConfigProvider } from "@/contexts/RemoteConfigContext";
+import { UpdateHandler } from "@/components/UpdateHandler";
 
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
+import { NotificationProvider } from "@/contexts/NotificationContext";
 
 function RootLayoutNav() {
   useProtectedRoute();
@@ -31,8 +34,6 @@ function RootLayoutNav() {
   );
 }
 
-import { NotificationProvider } from "@/contexts/NotificationContext";
-
 export default function RootLayout() {
   useEffect(() => {
     SplashScreen.hideAsync();
@@ -43,18 +44,22 @@ export default function RootLayout() {
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
-            <NotificationProvider>
-              <AuthProvider>
-                <OfflineProvider>
-                  <DataProvider>
-                    <CartProvider>
-                      <RootLayoutNav />
-                      <OfflineBanner />
-                    </CartProvider>
-                  </DataProvider>
-                </OfflineProvider>
-              </AuthProvider>
-            </NotificationProvider>
+            <RemoteConfigProvider>
+              <UpdateHandler>
+                <NotificationProvider>
+                  <AuthProvider>
+                    <OfflineProvider>
+                      <DataProvider>
+                        <CartProvider>
+                          <RootLayoutNav />
+                          <OfflineBanner />
+                        </CartProvider>
+                      </DataProvider>
+                    </OfflineProvider>
+                  </AuthProvider>
+                </NotificationProvider>
+              </UpdateHandler>
+            </RemoteConfigProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>
       </trpc.Provider>

@@ -29,6 +29,8 @@ function mapProduct(doc: any): Product {
     stock: doc.stock,
     createdAt: doc.createdAt,
     moq: doc.moq,
+    ribbon: doc.ribbon,
+    ribbonColor: doc.ribbonColor,
   };
 }
 

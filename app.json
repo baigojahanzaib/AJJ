@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "e-order",
-    "slug": "e-order",
+    "slug": "ajj",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -45,10 +45,26 @@
         {
           "iCloudContainerEnvironment": "Production"
         }
-      ]
+      ],
+      "expo-updates"
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c287cea6-6118-43d4-a452-3c696967d25b"
+    },
+    "extra": {
+      "router": {
+        "origin": "https://rork.com/"
+      },
+      "eas": {
+        "projectId": "c287cea6-6118-43d4-a452-3c696967d25b"
+      }
+    },
+    "owner": "itsmejazy"
   }
 }

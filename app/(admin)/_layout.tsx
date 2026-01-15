@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 import { LayoutDashboard, Package, Users, ClipboardList, Settings } from "lucide-react-native";
 import Colors from "@/constants/colors";
+import { Platform } from "react-native";
 
 export default function AdminTabLayout() {
   return (
@@ -12,6 +13,11 @@ export default function AdminTabLayout() {
         tabBarStyle: {
           backgroundColor: Colors.light.surface,
           borderTopColor: Colors.light.borderLight,
+          ...(Platform.OS === 'android' ? {
+            height: 85,
+            paddingBottom: 35,
+            paddingTop: 5,
+          } : {}),
         },
       }}
     >
@@ -65,6 +71,12 @@ export default function AdminTabLayout() {
       />
       <Tabs.Screen
         name="export-reports"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="remote-config"
         options={{
           href: null,
         }}

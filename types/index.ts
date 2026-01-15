@@ -52,6 +52,9 @@ export interface Product {
   stock: number;
   createdAt: string;
   moq?: number;
+  // Ecwid ribbon/promotion tag
+  ribbon?: string;
+  ribbonColor?: string;
 }
 
 export interface SelectedVariation {

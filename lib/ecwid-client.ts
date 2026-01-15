@@ -51,6 +51,11 @@ export interface EcwidProduct {
     enabled: boolean;
     options?: EcwidProductOption[];
     variations?: EcwidProductVariation[];
+    // Ribbon/promotion label (Ecwid returns as object)
+    ribbon?: {
+        text: string;
+        color: string;
+    };
 }
 
 export interface EcwidCategoriesResponse {
@@ -107,6 +112,9 @@ export interface ConvexProduct {
     stock: number;
     createdAt: string;
     ecwidId: number;
+    // Ribbon/promotion tag
+    ribbon?: string;
+    ribbonColor?: string;
 }
 
 const ECWID_API_BASE = "https://app.ecwid.com/api/v3";
@@ -284,6 +292,9 @@ export function mapEcwidProductToConvex(
         stock: ecwidProduct.quantity || 0,
         createdAt: new Date().toISOString(),
         ecwidId: ecwidProduct.id,
+        // Ribbon/promotion tag from Ecwid (ribbon is an object with text and color)
+        ribbon: ecwidProduct.ribbon?.text,
+        ribbonColor: ecwidProduct.ribbon?.color,
     };
 }
 

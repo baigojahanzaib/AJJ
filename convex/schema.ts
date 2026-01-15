@@ -84,13 +84,17 @@ export default defineSchema({
         variations: v.array(productVariationValidator),
         stock: v.number(),
         moq: v.optional(v.number()),
+        // Ecwid ribbon/promotion tag
+        ribbon: v.optional(v.string()),
+        ribbonColor: v.optional(v.string()),
         createdAt: v.string(),
         // Ecwid integration
         ecwidId: v.optional(v.number()),
     })
         .index("by_category", ["categoryId"])
         .index("by_sku", ["sku"])
-        .index("by_ecwidId", ["ecwidId"]),
+        .index("by_ecwidId", ["ecwidId"])
+        .index("by_ribbon", ["ribbon"]),
 
     customers: defineTable({
         name: v.string(),
@@ -149,4 +153,13 @@ export default defineSchema({
         lastSyncProductCount: v.optional(v.number()),
         lastSyncCategoryCount: v.optional(v.number()),
     }),
+
+    // App remote configuration (feature flags, maintenance mode, etc.)
+    appConfig: defineTable({
+        key: v.string(),
+        value: v.any(),
+        description: v.string(),
+        updatedAt: v.string(),
+        updatedBy: v.optional(v.string()),
+    }).index("by_key", ["key"]),
 });

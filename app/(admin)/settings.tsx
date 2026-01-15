@@ -86,6 +86,7 @@ export default function AdminSettings() {
       title: 'App',
       items: [
         { icon: RefreshCw, label: 'Ecwid Sync', onPress: () => router.push('/(admin)/ecwid-sync'), highlight: true },
+        { icon: Shield, label: 'Remote Config', onPress: () => router.push('/(admin)/remote-config'), highlight: true },
         { icon: Palette, label: 'Appearance', onPress: () => showAlert('Appearance', 'Theme settings coming soon') },
         { icon: FileText, label: 'Export Reports', onPress: () => router.push('/(admin)/export-reports') },
       ],
