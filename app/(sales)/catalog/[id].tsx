@@ -1,12 +1,12 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Dimensions, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Minus, Plus, ShoppingCart, Check, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { GestureDetector, Gesture, Directions, PanGestureHandler } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS, interpolate } from 'react-native-reanimated';
+import { Gesture, GestureDetector, Directions } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, runOnJS } from 'react-native-reanimated';
 import { useData } from '@/contexts/DataContext';
 import { useCart } from '@/contexts/CartContext';
 import Button from '@/components/Button';
@@ -183,53 +183,58 @@ export default function ProductDetailPage() {
         setActiveImageIndex(roundIndex);
     };
 
+    // Animation values for swipe transition
     const translateX = useSharedValue(0);
     const opacity = useSharedValue(1);
 
-    const animatedStyle = useAnimatedStyle(() => {
-        return {
-            transform: [{ translateX: translateX.value }],
-            opacity: opacity.value,
-        };
-    });
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: translateX.value }],
+        opacity: opacity.value,
+    }));
 
-    const navigateToProduct = (productId: string, direction: 'left' | 'right') => {
-        const screenWidth = Dimensions.get('window').width;
-        // Animate out
-        opacity.value = withTiming(0, { duration: 200 });
-        translateX.value = withTiming(direction === 'left' ? -screenWidth : screenWidth, { duration: 200 }, () => {
-            runOnJS(router.replace)(`/(sales)/catalog/${productId}`);
-        });
+    const navigateToPrev = () => {
+        if (prevProduct) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            opacity.value = withTiming(0.5, { duration: 150 });
+            translateX.value = withTiming(50, { duration: 150 }, () => {
+                runOnJS(router.replace)(`/(sales)/catalog/${prevProduct.id}`);
+            });
+        }
     };
 
-    const isEdgeSwipe = useSharedValue(false);
+    const navigateToNext = () => {
+        if (nextProduct) {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            opacity.value = withTiming(0.5, { duration: 150 });
+            translateX.value = withTiming(-50, { duration: 150 }, () => {
+                runOnJS(router.replace)(`/(sales)/catalog/${nextProduct.id}`);
+            });
+        }
+    };
 
-    const panGesture = Gesture.Pan()
-        .activeOffsetX([-10, 10])
-        .onStart((event) => {
-            isEdgeSwipe.value = event.x < 50;
-        })
-        .onUpdate((event) => {
-            if (isEdgeSwipe.value) return;
-            translateX.value = event.translationX;
-        })
-        .onEnd((event) => {
-            if (isEdgeSwipe.value) return;
-            const screenWidth = Dimensions.get('window').width;
-            const threshold = screenWidth * 0.3;
-
-            if (event.translationX < -threshold && nextProduct) {
-                runOnJS(navigateToProduct)(nextProduct.id, 'left');
-            } else if (event.translationX > threshold && prevProduct) {
-                runOnJS(navigateToProduct)(prevProduct.id, 'right');
-            } else {
-                translateX.value = withSpring(0);
+    // Fling gestures for quick swipes - these don't interfere with ScrollView
+    const flingLeft = Gesture.Fling()
+        .direction(Directions.LEFT)
+        .onEnd(() => {
+            if (nextProduct) {
+                runOnJS(navigateToNext)();
             }
         });
 
+    const flingRight = Gesture.Fling()
+        .direction(Directions.RIGHT)
+        .onEnd(() => {
+            if (prevProduct) {
+                runOnJS(navigateToPrev)();
+            }
+        });
+
+    // Combine both fling gestures
+    const combinedGesture = Gesture.Simultaneous(flingLeft, flingRight);
+
     return (
-        <GestureDetector gesture={panGesture}>
-            <Animated.View style={[{ flex: 1 }, animatedStyle]}>
+        <GestureDetector gesture={combinedGesture}>
+            <Animated.View style={[styles.animatedContainer, animatedStyle]}>
                 <SafeAreaView style={styles.container} edges={['top']}>
                     <Stack.Screen options={{ headerShown: false, presentation: 'card' }} />
                     <View style={styles.header}>
@@ -373,6 +378,9 @@ export default function ProductDetailPage() {
 
 
 const styles = StyleSheet.create({
+    animatedContainer: {
+        flex: 1,
+    },
     container: {
         flex: 1,
         backgroundColor: Colors.light.background,
