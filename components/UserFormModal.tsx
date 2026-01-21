@@ -323,24 +323,22 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
           </View>
 
           {avatar && (
-            style = { styles.removeAvatarBtn }
+            <TouchableOpacity
+              style={styles.removeAvatarBtn}
               onPress={() => {
-            setAvatar(undefined);
-            setLocalImageUri(undefined);
-            setShowAvatarPicker(false);
-            Haptics.selectionAsync();
-          }}
-            >
-          Haptics.selectionAsync();
+                setAvatar(undefined);
+                setLocalImageUri(undefined);
+                setShowAvatarPicker(false);
+                Haptics.selectionAsync();
               }}
             >
-          <Text style={styles.removeAvatarText}>Remove Avatar</Text>
-        </TouchableOpacity>
+              <Text style={styles.removeAvatarText}>Remove Avatar</Text>
+            </TouchableOpacity>
           )}
 
-        <View style={styles.bottomPadding} />
-      </ScrollView>
-    </SafeAreaView>
+          <View style={styles.bottomPadding} />
+        </ScrollView>
+      </SafeAreaView>
     </Modal >
   );
 
