@@ -9,6 +9,9 @@ import Button from '@/components/Button';
 import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
 import { User, UserRole } from '@/types';
+import * as ImagePicker from 'expo-image-picker';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 interface UserFormModalProps {
   visible: boolean;
@@ -29,8 +32,12 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState<UserRole>('sales_rep');
   const [avatar, setAvatar] = useState<string | undefined>(undefined);
+  const [localImageUri, setLocalImageUri] = useState<string | undefined>(undefined);
   const [isActive, setIsActive] = useState(true);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
 
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
@@ -49,6 +56,7 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
       setPhone(editingUser.phone);
       setRole(editingUser.role);
       setAvatar(editingUser.avatar);
+      setLocalImageUri(undefined);
       setIsActive(editingUser.isActive);
       setPassword('');
       setConfirmPassword('');
@@ -64,7 +72,9 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
     setPassword('');
     setConfirmPassword('');
     setRole('sales_rep');
+    setRole('sales_rep');
     setAvatar(undefined);
+    setLocalImageUri(undefined);
     setIsActive(true);
   };
 
@@ -78,7 +88,7 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
     return emailRegex.test(email);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) {
       setAlertConfig({
         visible: true,
@@ -167,23 +177,85 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
       return;
     }
 
-    const userData: Omit<User, 'id' | 'createdAt'> = {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
-      password: password || (editingUser?.password || ''),
-      role,
-      avatar,
-      isActive,
-    };
 
-    onSave(userData);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    handleClose();
+    // Continue with upload logic inside handleSave
+    setIsUploading(true);
+    try {
+      let finalAvatar = avatar;
+      if (localImageUri) {
+        const postUrl = await generateUploadUrl();
+        const response = await fetch(localImageUri);
+        const blob = await response.blob();
+
+        const result = await fetch(postUrl, {
+          method: "POST",
+          headers: { "Content-Type": blob.type },
+          body: blob,
+        });
+
+        const { storageId } = await result.json();
+        finalAvatar = storageId;
+      }
+
+      const finalUserData = { ...userData, avatar: finalAvatar };
+      onSave(finalUserData);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      handleClose();
+    } catch (error) {
+      console.error("Error saving user:", error);
+      setAlertConfig({
+        visible: true,
+        title: 'Error',
+        message: 'Failed to save user. Please try again.',
+        type: 'error',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleImagePick = async (source: 'camera' | 'library') => {
+    try {
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      };
+
+      let result;
+      if (source === 'camera') {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          setAlertConfig({
+            visible: true,
+            title: 'Permission Required',
+            message: 'Camera permission is required to take photos.',
+            type: 'warning',
+            buttons: [{ text: 'OK', style: 'default' }],
+          });
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync(options);
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync(options);
+      }
+
+      if (!result.canceled && result.assets[0].uri) {
+        setLocalImageUri(result.assets[0].uri);
+        setAvatar(undefined); // Clear predefined avatar selection
+        setShowAvatarPicker(false);
+        Haptics.selectionAsync();
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+    }
   };
 
   const selectAvatar = (avatarUrl: string) => {
     setAvatar(avatarUrl);
+    setLocalImageUri(undefined);
     setShowAvatarPicker(false);
     Haptics.selectionAsync();
   };
@@ -205,7 +277,27 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
         </View>
 
         <ScrollView style={styles.avatarPickerContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.avatarPickerSubtitle}>Select a profile picture</Text>
+          <View style={styles.imageSourceOptions}>
+            <TouchableOpacity style={styles.sourceOption} onPress={() => handleImagePick('library')}>
+              <View style={styles.sourceIconContainer}>
+                <Image source={require('@/assets/images/profiles/avatar_1.png')} style={{ width: 24, height: 24, opacity: 0 }} />
+                <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center' }]}>
+                  <Camera size={24} color={Colors.light.primary} />
+                </View>
+              </View>
+              <Text style={styles.sourceText}>Choose Photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sourceOption} onPress={() => handleImagePick('camera')}>
+              <View style={styles.sourceIconContainer}>
+                <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center' }]}>
+                  <Camera size={24} color={Colors.light.primary} />
+                </View>
+              </View>
+              <Text style={styles.sourceText}>Take Photo</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.avatarPickerSubtitle}>Or choose a default avatar</Text>
           <View style={styles.avatarGrid}>
             {sampleAvatars.map((url, index) => (
               <TouchableOpacity
@@ -231,22 +323,25 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
           </View>
 
           {avatar && (
-            <TouchableOpacity
-              style={styles.removeAvatarBtn}
+            style = { styles.removeAvatarBtn }
               onPress={() => {
-                setAvatar(undefined);
-                setShowAvatarPicker(false);
-                Haptics.selectionAsync();
+            setAvatar(undefined);
+            setLocalImageUri(undefined);
+            setShowAvatarPicker(false);
+            Haptics.selectionAsync();
+          }}
+            >
+          Haptics.selectionAsync();
               }}
             >
-              <Text style={styles.removeAvatarText}>Remove Avatar</Text>
-            </TouchableOpacity>
+          <Text style={styles.removeAvatarText}>Remove Avatar</Text>
+        </TouchableOpacity>
           )}
 
-          <View style={styles.bottomPadding} />
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
+        <View style={styles.bottomPadding} />
+      </ScrollView>
+    </SafeAreaView>
+    </Modal >
   );
 
   return (
@@ -275,9 +370,18 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
               style={styles.avatarContainer}
               onPress={() => setShowAvatarPicker(true)}
             >
-              {avatar ? (
+            >
+              {(localImageUri || avatar) ? (
                 <Image
-                  source={avatar && DEFAULT_AVATARS[avatar] ? DEFAULT_AVATARS[avatar] : { uri: avatar }}
+                  source={
+                    localImageUri
+                      ? { uri: localImageUri }
+                      : (avatar && DEFAULT_AVATARS[avatar])
+                        ? DEFAULT_AVATARS[avatar]
+                        : (avatar === editingUser?.avatar && editingUser?.avatarUrl)
+                          ? { uri: editingUser.avatarUrl }
+                          : { uri: avatar }
+                  }
                   style={styles.avatarImage}
                   contentFit="cover"
                 />
@@ -399,11 +503,12 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
 
           <View style={styles.saveSection}>
             <Button
-              title={isEditing ? "Update User" : "Create User"}
+              title={isUploading ? "Uploading..." : (isEditing ? "Update User" : "Create User")}
               onPress={handleSave}
               fullWidth
               size="lg"
-              icon={<Check size={20} color={Colors.light.primaryForeground} />}
+              disabled={isUploading}
+              icon={isUploading ? undefined : <Check size={20} color={Colors.light.primaryForeground} />}
             />
           </View>
 
@@ -663,8 +768,29 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   removeAvatarText: {
-    fontSize: 14,
-    fontWeight: '500' as const,
     color: Colors.light.danger,
+  },
+  imageSourceOptions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+    paddingTop: 20,
+  },
+  sourceOption: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  sourceIconContainer: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: Colors.light.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sourceText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.light.text,
   },
 });

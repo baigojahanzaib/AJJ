@@ -18,7 +18,9 @@ export default function UserCard({ user, onPress }: UserCardProps) {
         source={
           user.avatar && DEFAULT_AVATARS[user.avatar]
             ? DEFAULT_AVATARS[user.avatar]
-            : { uri: user.avatar || DEFAULT_AVATARS[DEFAULT_AVATAR_KEYS[Math.abs(user.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % DEFAULT_AVATAR_KEYS.length]] }
+            : user.avatarUrl
+              ? { uri: user.avatarUrl }
+              : { uri: user.avatar || DEFAULT_AVATARS[DEFAULT_AVATAR_KEYS[Math.abs(user.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % DEFAULT_AVATAR_KEYS.length]] }
         }
         style={styles.avatar}
         contentFit="cover"

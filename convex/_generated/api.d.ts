@@ -14,6 +14,7 @@ import type * as crons from "../crons.js";
 import type * as customers from "../customers.js";
 import type * as ecwid from "../ecwid.js";
 import type * as ecwidCron from "../ecwidCron.js";
+import type * as files from "../files.js";
 import type * as orders from "../orders.js";
 import type * as products from "../products.js";
 import type * as seed from "../seed.js";
@@ -33,6 +34,7 @@ declare const fullApi: ApiFromModules<{
   customers: typeof customers;
   ecwid: typeof ecwid;
   ecwidCron: typeof ecwidCron;
+  files: typeof files;
   orders: typeof orders;
   products: typeof products;
   seed: typeof seed;

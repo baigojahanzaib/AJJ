@@ -8,6 +8,7 @@ export interface User {
   role: UserRole;
   phone: string;
   avatar?: string;
+  avatarUrl?: string;
   isActive: boolean;
   createdAt: string;
 }

@@ -5,7 +5,13 @@ import { v } from "convex/values";
 export const list = query({
     args: {},
     handler: async (ctx) => {
-        return await ctx.db.query("users").collect();
+        const users = await ctx.db.query("users").collect();
+        return await Promise.all(
+            users.map(async (user) => ({
+                ...user,
+                avatarUrl: (user.avatar && !user.avatar.startsWith("default-")) ? await ctx.storage.getUrl(user.avatar) : undefined,
+            }))
+        );
     },
 });
 
@@ -13,7 +19,12 @@ export const list = query({
 export const getById = query({
     args: { id: v.id("users") },
     handler: async (ctx, args) => {
-        return await ctx.db.get(args.id);
+        const user = await ctx.db.get(args.id);
+        if (!user) return null;
+        return {
+            ...user,
+            avatarUrl: (user.avatar && !user.avatar.startsWith("default-")) ? await ctx.storage.getUrl(user.avatar) : undefined,
+        };
     },
 });
 
@@ -21,10 +32,17 @@ export const getById = query({
 export const getByEmail = query({
     args: { email: v.string() },
     handler: async (ctx, args) => {
-        return await ctx.db
+        const user = await ctx.db
             .query("users")
             .withIndex("by_email", (q) => q.eq("email", args.email.toLowerCase()))
             .first();
+
+        if (!user) return null;
+
+        return {
+            ...user,
+            avatarUrl: (user.avatar && !user.avatar.startsWith("default-")) ? await ctx.storage.getUrl(user.avatar) : undefined,
+        };
     },
 });
 
@@ -76,17 +94,32 @@ export const update = mutation({
     args: {
         id: v.id("users"),
         name: v.optional(v.string()),
+        email: v.optional(v.string()),
+        password: v.optional(v.string()),
         phone: v.optional(v.string()),
         avatar: v.optional(v.string()),
         isActive: v.optional(v.boolean()),
         role: v.optional(v.union(v.literal("admin"), v.literal("sales_rep"))),
     },
     handler: async (ctx, args) => {
-        const { id, ...updates } = args;
+        const { id, password, ...updates } = args;
+
+        const finalUpdates: any = { ...updates };
+
+        // Handle password update if provided
+        if (password) {
+            finalUpdates.passwordHash = password; // In production, hash this
+        }
+
+        if (finalUpdates.email) {
+            finalUpdates.email = finalUpdates.email.toLowerCase();
+        }
+
         // Filter out undefined values
         const cleanUpdates = Object.fromEntries(
-            Object.entries(updates).filter(([_, v]) => v !== undefined)
+            Object.entries(finalUpdates).filter(([_, v]) => v !== undefined)
         );
+
         await ctx.db.patch(id, cleanUpdates);
         return await ctx.db.get(id);
     },
