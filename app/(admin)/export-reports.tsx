@@ -42,7 +42,8 @@ export default function ExportReports() {
 
             const csvContent = header + rows;
             const fileName = `orders_report_${new Date().toISOString().split('T')[0]}.csv`;
-            const fileUri = FileSystem.documentDirectory + fileName;
+            const docDir = FileSystem.documentDirectory ?? FileSystem.cacheDirectory ?? '';
+            const fileUri = docDir + fileName;
 
             await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: FileSystem.EncodingType.UTF8 });
 

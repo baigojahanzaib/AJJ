@@ -361,8 +361,13 @@ export async function testEcwidConnection(
             };
         }
 
-    };
-}
+        return { success: true, message: "Connection successful" };
+    } catch (error) {
+        return {
+            success: false,
+            message: `Connection error: ${error instanceof Error ? error.message : String(error)}`
+        };
+    }
 }
 
 /**

@@ -11,7 +11,7 @@ export function useProtectedRoute() {
         if (isLoading) return;
 
         const inAuthGroup = segments[0] === '(admin)' || segments[0] === '(sales)';
-        const inPublicGroup = segments.length === 0 || segments[0] === 'index'; // Adjust based on your public routes
+        const inPublicGroup = segments.length === 0 || !inAuthGroup; // Root or any non-protected route
 
         console.log('[AuthGuard] Check:', { isAuthenticated, inAuthGroup, segments });
 

@@ -4,8 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
-import { 
-  ArrowLeft, Plus, X, Check, ImagePlus, Trash2, ChevronDown, Link2, Unlink, Edit2, Copy, Palette, Layers 
+import {
+  ArrowLeft, Plus, X, Check, ImagePlus, Trash2, ChevronDown, Link2, Unlink, Edit2, Copy, Palette, Layers
 } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import Input from '@/components/Input';
@@ -37,10 +37,10 @@ export default function AddProductPage() {
   const router = useRouter();
   const params = useLocalSearchParams<{ productId?: string }>();
   const { categories, addProduct, updateProduct, getProductById } = useData();
-  
+
   const editingProduct = params.productId ? getProductById(params.productId) : null;
   const isEditing = !!editingProduct;
-  
+
   const [name, setName] = useState(editingProduct?.name || '');
   const [description, setDescription] = useState(editingProduct?.description || '');
   const [sku, setSku] = useState(editingProduct?.sku || '');
@@ -50,19 +50,19 @@ export default function AddProductPage() {
   const [images, setImages] = useState<string[]>(editingProduct?.images || []);
   const [variations, setVariations] = useState<ProductVariation[]>(editingProduct?.variations || []);
   const [isActive, setIsActive] = useState(editingProduct?.isActive ?? true);
-  
+
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showImagePicker, setShowImagePicker] = useState(false);
   const [showVariationModal, setShowVariationModal] = useState(false);
   const [showOptionImagePicker, setShowOptionImagePicker] = useState(false);
   const [selectedOptionForImage, setSelectedOptionForImage] = useState<number | null>(null);
-  
+
   const [newVariationName, setNewVariationName] = useState('');
   const [newVariationOptions, setNewVariationOptions] = useState<VariationOption[]>([]);
   const [editingVariationIndex, setEditingVariationIndex] = useState<number | null>(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [showDirectImagePicker, setShowDirectImagePicker] = useState(false);
-  
+
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
     title: '',
@@ -85,7 +85,7 @@ export default function AddProductPage() {
     setImages(prev => prev.filter((_, i) => i !== index));
     setVariations(prev => prev.map(v => ({
       ...v,
-      options: v.options.map(opt => 
+      options: v.options.map(opt =>
         opt.image === removedImage ? { ...opt, image: undefined } : opt
       ),
     })));
@@ -232,8 +232,8 @@ export default function AddProductPage() {
     }
 
     const newVariation: ProductVariation = {
-      id: editingVariationIndex !== null 
-        ? variations[editingVariationIndex].id 
+      id: editingVariationIndex !== null
+        ? variations[editingVariationIndex].id
         : `var-${Date.now()}`,
       name: newVariationName,
       options: newVariationOptions,
@@ -257,8 +257,8 @@ export default function AddProductPage() {
       type: 'warning',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Remove', 
+        {
+          text: 'Remove',
           style: 'destructive',
           onPress: () => {
             setVariations(prev => prev.filter((_, i) => i !== index));
@@ -269,7 +269,7 @@ export default function AddProductPage() {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) {
       setAlertConfig({
         visible: true,
@@ -345,22 +345,22 @@ export default function AddProductPage() {
         title: 'Product Updated',
         message: `${productData.name} has been updated successfully.`,
         type: 'success',
-        buttons: [{ 
-          text: 'OK', 
+        buttons: [{
+          text: 'OK',
           style: 'default',
           onPress: () => router.back(),
         }],
       });
     } else {
-      const newProduct = addProduct(productData);
+      const newProduct = await addProduct(productData);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setAlertConfig({
         visible: true,
         title: 'Product Created',
         message: `${newProduct.name} has been added successfully.`,
         type: 'success',
-        buttons: [{ 
-          text: 'OK', 
+        buttons: [{
+          text: 'OK',
           style: 'default',
           onPress: () => router.back(),
         }],
@@ -390,11 +390,11 @@ export default function AddProductPage() {
               <Text style={styles.pickerSubtitle}>Select from product images</Text>
               <View style={styles.imageGrid}>
                 {images.map((url, index) => {
-                  const currentOption = selectedOptionForImage !== null 
-                    ? newVariationOptions[selectedOptionForImage] 
+                  const currentOption = selectedOptionForImage !== null
+                    ? newVariationOptions[selectedOptionForImage]
                     : null;
                   const isSelected = currentOption?.image === url;
-                  
+
                   return (
                     <TouchableOpacity
                       key={index}
@@ -449,11 +449,11 @@ export default function AddProductPage() {
           <Text style={styles.pickerSubtitle}>Select an image (will be added to product images)</Text>
           <View style={styles.imageGrid}>
             {sampleImages.map((url, index) => {
-              const currentOption = selectedOptionForImage !== null 
-                ? newVariationOptions[selectedOptionForImage] 
+              const currentOption = selectedOptionForImage !== null
+                ? newVariationOptions[selectedOptionForImage]
                 : null;
               const isSelected = currentOption?.image === url;
-              
+
               return (
                 <TouchableOpacity
                   key={index}
@@ -563,8 +563,8 @@ export default function AddProductPage() {
           </View>
 
           <View style={styles.presetBtnContainer}>
-            <TouchableOpacity 
-              style={styles.usePresetBtn} 
+            <TouchableOpacity
+              style={styles.usePresetBtn}
               onPress={() => setShowPresetPicker(true)}
             >
               <Layers size={16} color={Colors.light.primary} />
@@ -589,7 +589,7 @@ export default function AddProductPage() {
                     <Trash2 size={18} color={Colors.light.danger} />
                   </TouchableOpacity>
                 </View>
-                
+
                 <Input
                   label="Name"
                   placeholder="e.g., Small, Red, Cotton"
@@ -604,14 +604,14 @@ export default function AddProductPage() {
                     <View style={styles.linkedImageContainer}>
                       <Image source={{ uri: option.image }} style={styles.linkedImage} contentFit="cover" />
                       <View style={styles.linkedImageActions}>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                           style={styles.linkedImageBtn}
                           onPress={() => openOptionImagePicker(index)}
                         >
                           <Edit2 size={16} color={Colors.light.primary} />
                           <Text style={styles.linkedImageBtnText}>Change</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity 
+                        <TouchableOpacity
                           style={[styles.linkedImageBtn, styles.unlinkBtn]}
                           onPress={() => unlinkImageFromOption(index)}
                         >
@@ -623,7 +623,7 @@ export default function AddProductPage() {
                   ) : (
                     <View style={styles.imageActionButtons}>
                       {images.length > 0 && (
-                        <TouchableOpacity 
+                        <TouchableOpacity
                           style={styles.linkImageBtn}
                           onPress={() => openOptionImagePicker(index)}
                         >
@@ -631,7 +631,7 @@ export default function AddProductPage() {
                           <Text style={styles.linkImageBtnText}>Link Existing</Text>
                         </TouchableOpacity>
                       )}
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={[styles.linkImageBtn, styles.addNewImageBtn]}
                         onPress={() => openDirectImagePicker(index)}
                       >
@@ -735,7 +735,7 @@ export default function AddProductPage() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <Stack.Screen options={{ headerShown: false }} />
-      
+
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
           <ArrowLeft size={24} color={Colors.light.text} />
@@ -903,7 +903,7 @@ export default function AddProductPage() {
                   </TouchableOpacity>
                 </View>
               </View>
-              
+
               <View style={styles.variationOptionsContainer}>
                 {variation.options.map((opt, optIndex) => (
                   <View key={opt.id} style={styles.variationOptionChip}>

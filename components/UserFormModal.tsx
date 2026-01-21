@@ -197,6 +197,14 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
         finalAvatar = storageId;
       }
 
+      const userData = {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        role,
+        isActive,
+        ...(password && { password }),
+      };
       const finalUserData = { ...userData, avatar: finalAvatar };
       onSave(finalUserData);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -280,7 +288,7 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
           <View style={styles.imageSourceOptions}>
             <TouchableOpacity style={styles.sourceOption} onPress={() => handleImagePick('library')}>
               <View style={styles.sourceIconContainer}>
-                <Image source={require('@/assets/images/profiles/avatar_1.png')} style={{ width: 24, height: 24, opacity: 0 }} />
+                <Image source={require('@/assets/images/profiles/avatar_1.jpg')} style={{ width: 24, height: 24, opacity: 0 }} />
                 <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center' }]}>
                   <Camera size={24} color={Colors.light.primary} />
                 </View>
@@ -367,7 +375,6 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
             <TouchableOpacity
               style={styles.avatarContainer}
               onPress={() => setShowAvatarPicker(true)}
-            >
             >
               {(localImageUri || avatar) ? (
                 <Image
