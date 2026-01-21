@@ -1,12 +1,14 @@
 
-import { useState, useMemo } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
+import { useState, useMemo, useEffect } from 'react';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import * as Updates from 'expo-updates';
+import Constants from 'expo-constants';
 import {
   LogOut, Bell, HelpCircle, ChevronRight,
-  TrendingUp, Package, DollarSign, ClipboardList, Shield
+  TrendingUp, Package, DollarSign, ClipboardList, Shield, RefreshCw, CheckCircle, AlertCircle
 } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
@@ -26,6 +28,93 @@ export default function SalesProfile() {
     type: 'info' as 'success' | 'error' | 'warning' | 'info',
     buttons: [] as { text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }[],
   });
+
+  // Update status states
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  // Get app version info
+  const appVersion = Constants.expoConfig?.version || '1.0.0';
+  const updateId = Updates.updateId;
+  const isEmbedded = Updates.isEmbeddedLaunch;
+  const channel = Updates.channel;
+
+  // Check for updates on mount
+  useEffect(() => {
+    checkForUpdates();
+  }, []);
+
+  const checkForUpdates = async () => {
+    if (__DEV__) {
+      // Updates don't work in development
+      return;
+    }
+
+    try {
+      setIsCheckingUpdate(true);
+      const update = await Updates.checkForUpdateAsync();
+      setUpdateAvailable(update.isAvailable);
+
+      if (update.isAvailable) {
+        setAlertConfig({
+          visible: true,
+          title: 'Update Available',
+          message: 'A new version is available. Would you like to download and install it now?',
+          type: 'info',
+          buttons: [
+            { text: 'Later', style: 'cancel' },
+            {
+              text: 'Update Now',
+              style: 'default',
+              onPress: downloadAndApplyUpdate,
+            },
+          ],
+        });
+      }
+    } catch (e) {
+      console.log('Error checking for updates:', e);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const downloadAndApplyUpdate = async () => {
+    try {
+      setIsDownloading(true);
+      const update = await Updates.fetchUpdateAsync();
+
+      if (update.isNew) {
+        setAlertConfig({
+          visible: true,
+          title: 'Update Downloaded',
+          message: 'The update has been downloaded. The app will now restart to apply the changes.',
+          type: 'success',
+          buttons: [
+            {
+              text: 'Restart Now',
+              style: 'default',
+              onPress: async () => {
+                await Updates.reloadAsync();
+              },
+            },
+          ],
+        });
+      }
+    } catch (e) {
+      console.log('Error downloading update:', e);
+      setAlertConfig({
+        visible: true,
+        title: 'Update Failed',
+        message: 'Failed to download the update. Please try again later.',
+        type: 'error',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
+    } finally {
+      setIsDownloading(false);
+      setUpdateAvailable(false);
+    }
+  };
 
   const myOrders = useMemo(() => {
     return getOrdersBySalesRep(user?.id || '');
@@ -214,7 +303,84 @@ export default function SalesProfile() {
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.version}>Version 1.0.0</Text>
+        {/* App Version & Update Status Section */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>App Info</Text>
+          <Card style={styles.updateCard}>
+            <View style={styles.updateRow}>
+              <Text style={styles.updateLabel}>Version</Text>
+              <Text style={styles.updateValue}>{appVersion}</Text>
+            </View>
+
+            <View style={styles.updateDivider} />
+
+            <View style={styles.updateRow}>
+              <Text style={styles.updateLabel}>Channel</Text>
+              <Text style={styles.updateValue}>{channel || 'N/A'}</Text>
+            </View>
+
+            <View style={styles.updateDivider} />
+
+            <View style={styles.updateRow}>
+              <Text style={styles.updateLabel}>Update Type</Text>
+              <View style={[styles.updateBadge, isEmbedded ? styles.embeddedBadge : styles.otaBadge]}>
+                <Text style={styles.updateBadgeText}>
+                  {isEmbedded ? 'Embedded' : 'OTA Update'}
+                </Text>
+              </View>
+            </View>
+
+            {updateId && (
+              <>
+                <View style={styles.updateDivider} />
+                <View style={styles.updateRow}>
+                  <Text style={styles.updateLabel}>Update ID</Text>
+                  <Text style={[styles.updateValue, styles.updateIdText]} numberOfLines={1}>
+                    {updateId.slice(0, 8)}...
+                  </Text>
+                </View>
+              </>
+            )}
+
+            <View style={styles.updateDivider} />
+
+            <TouchableOpacity
+              style={styles.checkUpdateButton}
+              onPress={checkForUpdates}
+              disabled={isCheckingUpdate || isDownloading}
+            >
+              {isCheckingUpdate || isDownloading ? (
+                <>
+                  <ActivityIndicator size="small" color={Colors.light.primary} />
+                  <Text style={styles.checkUpdateText}>
+                    {isDownloading ? 'Downloading...' : 'Checking...'}
+                  </Text>
+                </>
+              ) : updateAvailable ? (
+                <>
+                  <AlertCircle size={18} color={Colors.light.warning} />
+                  <Text style={[styles.checkUpdateText, { color: Colors.light.warning }]}>
+                    Update Available - Tap to Install
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <RefreshCw size={18} color={Colors.light.primary} />
+                  <Text style={styles.checkUpdateText}>Check for Updates</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {__DEV__ && (
+              <View style={styles.devModeNote}>
+                <AlertCircle size={14} color={Colors.light.warning} />
+                <Text style={styles.devModeText}>
+                  Updates disabled in development mode
+                </Text>
+              </View>
+            )}
+          </Card>
+        </View>
       </ScrollView>
 
       <ThemedAlert
@@ -384,5 +550,77 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.light.textTertiary,
     marginBottom: 24,
+  },
+  updateCard: {
+    padding: 16,
+  },
+  updateRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  updateLabel: {
+    fontSize: 14,
+    color: Colors.light.textSecondary,
+  },
+  updateValue: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.light.text,
+  },
+  updateIdText: {
+    fontFamily: 'monospace',
+    fontSize: 12,
+  },
+  updateDivider: {
+    height: 1,
+    backgroundColor: Colors.light.borderLight,
+    marginVertical: 4,
+  },
+  updateBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  embeddedBadge: {
+    backgroundColor: Colors.light.surfaceSecondary,
+  },
+  otaBadge: {
+    backgroundColor: Colors.light.successLight,
+  },
+  updateBadgeText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: Colors.light.text,
+  },
+  checkUpdateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    marginTop: 8,
+    backgroundColor: Colors.light.primaryLight,
+    borderRadius: 10,
+  },
+  checkUpdateText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.light.primary,
+  },
+  devModeNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.borderLight,
+  },
+  devModeText: {
+    fontSize: 12,
+    color: Colors.light.warning,
   },
 });
