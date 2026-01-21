@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -27,6 +27,7 @@ const statusOptions: { id: OrderStatus; label: string; color: 'default' | 'succe
 ];
 
 export default function OrderDetailPage() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { orders, updateOrderStatus, updateOrder, undoOrderEdit } = useData();
@@ -641,7 +642,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
           </View>
         )}
 
-        <View style={styles.bottomPadding} />
+        <View style={{ height: Math.max(insets.bottom, 40) }} />
       </ScrollView>
 
       {renderEditModal()}

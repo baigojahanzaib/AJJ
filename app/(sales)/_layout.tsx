@@ -4,6 +4,7 @@ import { Package, ShoppingCart, ClipboardList, User, Users } from "lucide-react-
 import Colors from "@/constants/colors";
 import { useCart } from "@/contexts/CartContext";
 import { View, Text, StyleSheet, Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 function CartTabIcon({ color, size }: { color: string; size: number }) {
   const { itemCount } = useCart();
@@ -21,6 +22,15 @@ function CartTabIcon({ color, size }: { color: string; size: number }) {
 }
 
 function TabsLayout() {
+  const insets = useSafeAreaInsets();
+  // Calculate tab bar height: base height + bottom safe area for Android nav bar
+  const tabBarHeight = Platform.OS === 'android'
+    ? 56 + Math.max(insets.bottom, 0) // 56 is standard tab bar height
+    : undefined; // Let iOS handle it automatically
+  const tabBarPaddingBottom = Platform.OS === 'android'
+    ? Math.max(insets.bottom, 0)
+    : undefined;
+
   return (
     <Tabs
       screenOptions={{
@@ -31,8 +41,8 @@ function TabsLayout() {
           backgroundColor: Colors.light.surface,
           borderTopColor: Colors.light.borderLight,
           ...(Platform.OS === 'android' ? {
-            height: 85,
-            paddingBottom: 35,
+            height: tabBarHeight,
+            paddingBottom: tabBarPaddingBottom,
             paddingTop: 5,
           } : {}),
         },
@@ -53,8 +63,8 @@ function TabsLayout() {
                 backgroundColor: Colors.light.surface,
                 borderTopColor: Colors.light.borderLight,
                 ...(Platform.OS === 'android' ? {
-                  height: 85,
-                  paddingBottom: 35,
+                  height: tabBarHeight,
+                  paddingBottom: tabBarPaddingBottom,
                   paddingTop: 5,
                 } : {}),
               };

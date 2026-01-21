@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, MapPin, Search } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -20,6 +20,7 @@ interface AlertConfig {
 }
 
 export default function AddCustomerPage() {
+    const insets = useSafeAreaInsets();
     const { editId } = useLocalSearchParams<{ editId?: string }>();
     const router = useRouter();
     const { getCustomerById, addCustomer, updateCustomer } = useData();
@@ -271,7 +272,7 @@ export default function AddCustomerPage() {
                 </View>
             </ScrollView>
 
-            <View style={styles.footer}>
+            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
                 <Button
                     title={isEditing ? 'Save Changes' : 'Add Customer'}
                     onPress={handleSave}

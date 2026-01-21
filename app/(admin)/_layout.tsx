@@ -2,8 +2,18 @@ import { Tabs } from "expo-router";
 import { LayoutDashboard, Package, Users, ClipboardList, Settings } from "lucide-react-native";
 import Colors from "@/constants/colors";
 import { Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function AdminTabLayout() {
+  const insets = useSafeAreaInsets();
+  // Calculate tab bar height: base height + bottom safe area for Android nav bar
+  const tabBarHeight = Platform.OS === 'android'
+    ? 56 + Math.max(insets.bottom, 0) // 56 is standard tab bar height
+    : undefined; // Let iOS handle it automatically
+  const tabBarPaddingBottom = Platform.OS === 'android'
+    ? Math.max(insets.bottom, 0)
+    : undefined;
+
   return (
     <Tabs
       screenOptions={{
@@ -14,8 +24,8 @@ export default function AdminTabLayout() {
           backgroundColor: Colors.light.surface,
           borderTopColor: Colors.light.borderLight,
           ...(Platform.OS === 'android' ? {
-            height: 85,
-            paddingBottom: 35,
+            height: tabBarHeight,
+            paddingBottom: tabBarPaddingBottom,
             paddingTop: 5,
           } : {}),
         },

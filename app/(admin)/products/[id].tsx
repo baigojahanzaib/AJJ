@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, FlatList } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
@@ -16,6 +16,7 @@ import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
 
 export default function AdminProductDetail() {
+    const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const { getProductById, getCategoryById, updateProduct, deleteProduct } = useData();
@@ -265,7 +266,7 @@ export default function AdminProductDetail() {
                         </View>
                     </View>
 
-                    <View style={styles.bottomPadding} />
+                    <View style={{ height: Math.max(insets.bottom, 40) }} />
                 </View>
             </ScrollView>
 

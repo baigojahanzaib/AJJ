@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Linking, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Phone, Mail, MapPin, Building2, Edit2, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -18,6 +18,7 @@ interface AlertConfig {
 }
 
 export default function CustomerDetailPage() {
+    const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
 
@@ -215,6 +216,8 @@ export default function CustomerDetailPage() {
                         <Text style={styles.deleteButtonText}>Delete Customer</Text>
                     </TouchableOpacity>
                 </View>
+
+                <View style={{ height: Math.max(insets.bottom, 24) }} />
             </ScrollView>
 
             <ThemedAlert
