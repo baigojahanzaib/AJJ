@@ -104,6 +104,8 @@ export interface Order {
   customerPhone: string;
   customerEmail: string;
   customerAddress: string;
+  latitude?: number;
+  longitude?: number;
   items: OrderItem[];
   subtotal: number;
   tax: number;
@@ -133,6 +135,8 @@ export interface Customer {
   phone: string;
   email: string;
   address: string;
+  latitude?: number;
+  longitude?: number;
   company?: string;
   isActive: boolean;
   createdAt: string;

@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
+import { ArrowLeft, MapPin, Search } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import { useData } from '@/contexts/DataContext';
 import Input from '@/components/Input';
 import Button from '@/components/Button';
@@ -29,6 +30,8 @@ export default function AddCustomerPage() {
         phone: '',
         email: '',
         address: '',
+        latitude: undefined as number | undefined,
+        longitude: undefined as number | undefined,
         company: '',
     });
 
@@ -50,6 +53,8 @@ export default function AddCustomerPage() {
                     phone: customer.phone,
                     email: customer.email,
                     address: customer.address,
+                    latitude: customer.latitude,
+                    longitude: customer.longitude,
                     company: customer.company || '',
                 });
             }
@@ -78,6 +83,8 @@ export default function AddCustomerPage() {
                     phone: formData.phone,
                     email: formData.email,
                     address: formData.address,
+                    latitude: formData.latitude,
+                    longitude: formData.longitude,
                     company: formData.company,
                 });
             } else {
@@ -86,6 +93,8 @@ export default function AddCustomerPage() {
                     phone: formData.phone,
                     email: formData.email,
                     address: formData.address,
+                    latitude: formData.latitude,
+                    longitude: formData.longitude,
                     company: formData.company,
                     isActive: true,
                 });
@@ -110,6 +119,73 @@ export default function AddCustomerPage() {
             showAlert({
                 title: 'Error',
                 message: 'Failed to save customer. Please try again.',
+                type: 'error',
+                buttons: [{ text: 'OK', style: 'default' }],
+            });
+        }
+    };
+
+    // Function to get current location
+    const handleGetLocation = async () => {
+        try {
+            // Request permissions
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status !== 'granted') {
+                showAlert({
+                    title: 'Permission Denied',
+                    message: 'Permission to access location was denied.',
+                    type: 'warning',
+                    buttons: [{ text: 'OK', style: 'default' }],
+                });
+                return;
+            }
+
+            // Show loading or something? We don't have a loading state for this, but Haptics help
+            Haptics.selectionAsync();
+
+            const location = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.Balanced,
+            });
+
+            // Update coordinates
+            setFormData(prev => ({
+                ...prev,
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude
+            }));
+
+            // Reverse geocode
+            const addressResponse = await Location.reverseGeocodeAsync({
+                latitude: location.coords.latitude,
+                longitude: location.coords.longitude
+            });
+
+            if (addressResponse && addressResponse.length > 0) {
+                const addr = addressResponse[0];
+                const parts = [
+                    addr.street,
+                    addr.city,
+                    addr.region,
+                    addr.postalCode,
+                    addr.country
+                ].filter(Boolean);
+
+                const formattedAddress = parts.join(', ');
+                setFormData(prev => ({
+                    ...prev,
+                    address: formattedAddress,
+                    latitude: location.coords.latitude,
+                    longitude: location.coords.longitude
+                }));
+
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+
+        } catch (error) {
+            console.error('Error getting location:', error);
+            showAlert({
+                title: 'Location Error',
+                message: 'Failed to get current location.',
                 type: 'error',
                 buttons: [{ text: 'OK', style: 'default' }],
             });
@@ -176,6 +252,22 @@ export default function AddCustomerPage() {
                         numberOfLines={3}
                         containerStyle={styles.inputContainer}
                     />
+
+                    <View style={styles.locationButtonContainer}>
+                        <TouchableOpacity style={styles.locationButton} onPress={handleGetLocation}>
+                            <MapPin size={18} color={Colors.light.primary} />
+                            <Text style={styles.locationButtonText}>Use Current Location</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {(formData.latitude !== undefined && formData.longitude !== undefined) && (
+                        <View style={styles.coordinatesContainer}>
+                            <Text style={styles.coordinatesLabel}>Grid Coordinates:</Text>
+                            <Text style={styles.coordinatesValue}>
+                                {formData.latitude.toFixed(6)}, {formData.longitude.toFixed(6)}
+                            </Text>
+                        </View>
+                    )}
                 </View>
             </ScrollView>
 
@@ -237,5 +329,44 @@ const styles = StyleSheet.create({
         paddingBottom: 8,
         borderTopWidth: 1,
         borderTopColor: Colors.light.borderLight,
+    },
+    locationButtonContainer: {
+        alignItems: 'flex-start',
+        marginBottom: 16,
+        marginTop: -8,
+    },
+    locationButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        backgroundColor: Colors.light.primaryLight,
+        borderRadius: 8,
+        gap: 6,
+    },
+    locationButtonText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: Colors.light.primary,
+    },
+    coordinatesContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 16,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        backgroundColor: Colors.light.surfaceSecondary,
+        borderRadius: 8,
+        gap: 8,
+    },
+    coordinatesLabel: {
+        fontSize: 13,
+        color: Colors.light.textSecondary,
+        fontWeight: '500',
+    },
+    coordinatesValue: {
+        fontSize: 13,
+        color: Colors.light.text,
+        fontFamily: 'monospace',
     },
 });

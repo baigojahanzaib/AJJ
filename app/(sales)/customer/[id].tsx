@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Linking, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Phone, Mail, MapPin, Building2, Edit2, Trash2 } from 'lucide-react-native';
@@ -64,6 +64,20 @@ export default function CustomerDetailPage() {
                 },
             ],
         });
+    };
+
+    const handleOpenMap = (lat: number, lng: number) => {
+        const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
+        const latLng = `${lat},${lng}`;
+        const label = 'Customer Location';
+        const url = Platform.select({
+            ios: `${scheme}${label}@${latLng}`,
+            android: `${scheme}${latLng}(${label})`
+        });
+
+        if (url) {
+            Linking.openURL(url);
+        }
     };
 
     if (!customer) {
@@ -148,6 +162,28 @@ export default function CustomerDetailPage() {
                                     <View style={styles.detailContent}>
                                         <Text style={styles.detailLabel}>Address</Text>
                                         <Text style={styles.detailValue}>{customer.address}</Text>
+                                    </View>
+                                </View>
+                            </>
+                        )}
+
+                        {(customer.latitude !== undefined && customer.longitude !== undefined) && (
+                            <>
+                                <View style={styles.detailDivider} />
+                                <View style={styles.detailRow}>
+                                    <View style={styles.detailIcon}>
+                                        <MapPin size={18} color={Colors.light.primary} />
+                                    </View>
+                                    <View style={styles.detailContent}>
+                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <Text style={styles.detailLabel}>Grid Coordinates</Text>
+                                            <TouchableOpacity onPress={() => handleOpenMap(customer.latitude!, customer.longitude!)}>
+                                                <Text style={{ fontSize: 12, color: Colors.light.primary, fontWeight: '600' }}>View on Map</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                        <Text style={[styles.detailValue, { fontFamily: 'monospace', fontSize: 13 }]}>
+                                            {customer.latitude.toFixed(6)}, {customer.longitude.toFixed(6)}
+                                        </Text>
                                     </View>
                                 </View>
                             </>

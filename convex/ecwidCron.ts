@@ -169,6 +169,8 @@ export const checkAndSync = internalAction({
                         isActive: prod.enabled !== false,
                         variations,
                         stock: prod.quantity || 0,
+                        ribbon: prod.ribbon?.text,
+                        ribbonColor: prod.ribbon?.color,
                     });
                     productCount++;
                 }

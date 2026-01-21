@@ -74,6 +74,39 @@ export interface EcwidProductsResponse {
     items: EcwidProduct[];
 }
 
+export interface EcwidOrderInput {
+    email?: string;
+    subtotal: number;
+    total: number;
+    paymentStatus: "PAID" | "AWAITING_PAYMENT" | "INCOMPLETE";
+    fulfillmentStatus: "AWAITING_PROCESSING" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELED";
+    items: Array<{
+        name: string;
+        price: number;
+        quantity: number;
+        sku?: string;
+        productId?: number;
+    }>;
+    billingPerson?: {
+        name?: string;
+        phone?: string;
+        street?: string;
+    };
+    shippingPerson?: {
+        name?: string;
+        phone?: string;
+        street?: string;
+    };
+    externalId?: string;
+    privateAdminNotes?: string;
+}
+
+export interface EcwidOrderResponse {
+    id: number;
+    orderNumber: number;
+    vendorOrderNumber: string;
+}
+
 // Types matching Convex schema
 export interface ConvexCategory {
     name: string;
@@ -328,11 +361,32 @@ export async function testEcwidConnection(
             };
         }
 
-        return { success: true, message: "Successfully connected to Ecwid store" };
-    } catch (error) {
-        return {
-            success: false,
-            message: `Connection error: ${error instanceof Error ? error.message : 'Unknown error'}`
-        };
+    };
+}
+}
+
+/**
+ * Create a new order in Ecwid
+ */
+export async function createEcwidOrder(
+    storeId: string,
+    accessToken: string,
+    order: EcwidOrderInput
+): Promise<EcwidOrderResponse> {
+    const url = `${ECWID_API_BASE}/${storeId}/orders`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            "Authorization": `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(order),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Ecwid API error (create order): ${response.status} - ${errorText}`);
     }
+
+    return await response.json();
 }

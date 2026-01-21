@@ -31,7 +31,7 @@ export default function SalesCart() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { items, customerInfo, notes, subtotal, tax, total, itemCount, setCustomerInfo, setNotes, updateQuantity, removeItem, clearCart } = useCart();
-  const { addOrder, addCustomer, users } = useData();
+  const { addOrder, addCustomer, users, activeCustomers } = useData();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -43,12 +43,16 @@ export default function SalesCart() {
     phone: '',
     email: '',
     address: '',
+    latitude: undefined as number | undefined,
+    longitude: undefined as number | undefined,
   });
   const [confirmedCustomer, setConfirmedCustomer] = useState<{
     name: string;
     phone: string;
     email: string;
     address: string;
+    latitude?: number;
+    longitude?: number;
   } | null>(null);
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({
     visible: false,
@@ -66,10 +70,6 @@ export default function SalesCart() {
     setAlertConfig(prev => ({ ...prev, visible: false }));
   };
 
-  // Get active customers from Convex via DataContext
-  // For now, we'll use an empty array since customers aren't loaded in DataContext yet
-  // TODO: Add customers query to DataContext
-  const activeCustomers: Customer[] = useMemo(() => [], []);
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return activeCustomers;
@@ -106,12 +106,16 @@ export default function SalesCart() {
       phone: customer.phone,
       email: customer.email,
       address: customer.address,
+      latitude: customer.latitude,
+      longitude: customer.longitude,
     });
     setCustomerInfo({
       name: customer.name,
       phone: customer.phone,
       email: customer.email,
       address: customer.address,
+      latitude: customer.latitude,
+      longitude: customer.longitude,
     });
     Haptics.selectionAsync();
     setCustomerModalStep('confirm');
@@ -144,12 +148,16 @@ export default function SalesCart() {
       phone: tempCustomerInfo.phone,
       email: tempCustomerInfo.email,
       address: tempCustomerInfo.address,
+      latitude: tempCustomerInfo.latitude,
+      longitude: tempCustomerInfo.longitude,
     });
     setConfirmedCustomer({
       name: tempCustomerInfo.name,
       phone: tempCustomerInfo.phone,
       email: tempCustomerInfo.email,
       address: tempCustomerInfo.address,
+      latitude: tempCustomerInfo.latitude,
+      longitude: tempCustomerInfo.longitude,
     });
     setSelectedCustomer(null);
     Haptics.selectionAsync();
@@ -163,8 +171,8 @@ export default function SalesCart() {
 
   const handleSubmitOrder = async (customer?: Customer | null, newCustomerData?: typeof tempCustomerInfo) => {
     const customerData = customer
-      ? { name: customer.name, phone: customer.phone, email: customer.email, address: customer.address }
-      : newCustomerData || customerInfo;
+      ? { name: customer.name, phone: customer.phone, email: customer.email, address: customer.address, latitude: customer.latitude, longitude: customer.longitude }
+      : newCustomerData || { ...customerInfo, latitude: undefined, longitude: undefined };
 
     if (!customerData.name.trim() || !customerData.phone.trim()) {
       showAlert({
@@ -187,6 +195,8 @@ export default function SalesCart() {
             phone: newCustomerData.phone,
             email: newCustomerData.email,
             address: newCustomerData.address,
+            latitude: newCustomerData.latitude,
+            longitude: newCustomerData.longitude,
             isActive: true,
           });
           console.log('[Cart] New customer created during order submission');
@@ -216,6 +226,8 @@ export default function SalesCart() {
         customerPhone: customerData.phone,
         customerEmail: customerData.email,
         customerAddress: customerData.address,
+        latitude: customerData.latitude,
+        longitude: customerData.longitude,
         items: orderItems,
         subtotal,
         tax,
@@ -406,7 +418,12 @@ export default function SalesCart() {
           address.postalCode,
         ].filter(Boolean).join(', ');
 
-        setTempCustomerInfo(prev => ({ ...prev, address: formattedAddress }));
+        setTempCustomerInfo(prev => ({
+          ...prev,
+          address: formattedAddress,
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude
+        }));
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (error) {
@@ -486,6 +503,15 @@ export default function SalesCart() {
                 <MapPin size={22} color={Colors.light.primaryForeground} />
               </TouchableOpacity>
             </View>
+
+            {(tempCustomerInfo.latitude !== undefined && tempCustomerInfo.longitude !== undefined) && (
+              <View style={styles.coordinatesContainer}>
+                <Text style={styles.coordinatesLabel}>Grid Coordinates:</Text>
+                <Text style={styles.coordinatesValue}>
+                  {tempCustomerInfo.latitude.toFixed(6)}, {tempCustomerInfo.longitude.toFixed(6)}
+                </Text>
+              </View>
+            )}
           </View>
         </ScrollView>
 
@@ -529,6 +555,11 @@ export default function SalesCart() {
             )}
             {confirmedCustomer?.address && (
               <Text style={styles.confirmCustomerDetail}>{confirmedCustomer?.address}</Text>
+            )}
+            {(confirmedCustomer?.latitude !== undefined && confirmedCustomer?.longitude !== undefined) && (
+              <Text style={styles.confirmCustomerDetail}>
+                Coords: {confirmedCustomer.latitude.toFixed(6)}, {confirmedCustomer.longitude.toFixed(6)}
+              </Text>
             )}
           </View>
         </View>
@@ -1252,5 +1283,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 25,
+  },
+  coordinatesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderRadius: 8,
+    gap: 8,
+  },
+  coordinatesLabel: {
+    fontSize: 13,
+    color: Colors.light.textSecondary,
+    fontWeight: '500',
+  },
+  coordinatesValue: {
+    fontSize: 13,
+    color: Colors.light.text,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
 });

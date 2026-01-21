@@ -1,10 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, Dimensions, NativeSyntheticEvent, NativeScrollEvent } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Minus, Plus, ShoppingCart, Check, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import { GestureDetector, Gesture, Directions, PanGestureHandler } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS, interpolate } from 'react-native-reanimated';
 import { useData } from '@/contexts/DataContext';
 import { useCart } from '@/contexts/CartContext';
 import Button from '@/components/Button';
@@ -16,24 +18,24 @@ import { SelectedVariation, ProductVariation } from '@/types';
 export default function ProductDetailPage() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
-    const { activeProducts, getCategoryById } = useData();
+    const { filteredSortedProducts, getCategoryById } = useData();
     const { addItem } = useCart();
 
     const [selectedVariations, setSelectedVariations] = useState<Record<string, string>>({});
     const [quantity, setQuantity] = useState(1);
 
     const product = useMemo(() => {
-        return activeProducts.find(p => p.id === id) || null;
-    }, [activeProducts, id]);
+        return filteredSortedProducts.find(p => p.id === id) || null;
+    }, [filteredSortedProducts, id]);
 
     const { prevProduct, nextProduct } = useMemo(() => {
-        if (!product || activeProducts.length === 0) return { prevProduct: null, nextProduct: null };
-        const currentIndex = activeProducts.findIndex(p => p.id === id);
+        if (!product || filteredSortedProducts.length === 0) return { prevProduct: null, nextProduct: null };
+        const currentIndex = filteredSortedProducts.findIndex(p => p.id === id);
         return {
-            prevProduct: currentIndex > 0 ? activeProducts[currentIndex - 1] : null,
-            nextProduct: currentIndex < activeProducts.length - 1 ? activeProducts[currentIndex + 1] : activeProducts.length > 1 ? null : null,
+            prevProduct: currentIndex > 0 ? filteredSortedProducts[currentIndex - 1] : null,
+            nextProduct: currentIndex < filteredSortedProducts.length - 1 ? filteredSortedProducts[currentIndex + 1] : null,
         };
-    }, [activeProducts, product, id]);
+    }, [filteredSortedProducts, product, id]);
 
     useEffect(() => {
         if (product && product.variations.length > 0) {
@@ -172,6 +174,8 @@ export default function ProductDetailPage() {
     const [imageModalVisible, setImageModalVisible] = useState(false);
     const screenWidth = Dimensions.get('window').width;
 
+    const insets = useSafeAreaInsets();
+
     const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const slideSize = event.nativeEvent.layoutMeasurement.width;
         const index = event.nativeEvent.contentOffset.x / slideSize;
@@ -179,147 +183,194 @@ export default function ProductDetailPage() {
         setActiveImageIndex(roundIndex);
     };
 
+    const translateX = useSharedValue(0);
+    const opacity = useSharedValue(1);
+
+    const animatedStyle = useAnimatedStyle(() => {
+        return {
+            transform: [{ translateX: translateX.value }],
+            opacity: opacity.value,
+        };
+    });
+
+    const navigateToProduct = (productId: string, direction: 'left' | 'right') => {
+        const screenWidth = Dimensions.get('window').width;
+        // Animate out
+        opacity.value = withTiming(0, { duration: 200 });
+        translateX.value = withTiming(direction === 'left' ? -screenWidth : screenWidth, { duration: 200 }, () => {
+            runOnJS(router.replace)(`/(sales)/catalog/${productId}`);
+        });
+    };
+
+    const isEdgeSwipe = useSharedValue(false);
+
+    const panGesture = Gesture.Pan()
+        .activeOffsetX([-10, 10])
+        .onStart((event) => {
+            isEdgeSwipe.value = event.x < 50;
+        })
+        .onUpdate((event) => {
+            if (isEdgeSwipe.value) return;
+            translateX.value = event.translationX;
+        })
+        .onEnd((event) => {
+            if (isEdgeSwipe.value) return;
+            const screenWidth = Dimensions.get('window').width;
+            const threshold = screenWidth * 0.3;
+
+            if (event.translationX < -threshold && nextProduct) {
+                runOnJS(navigateToProduct)(nextProduct.id, 'left');
+            } else if (event.translationX > threshold && prevProduct) {
+                runOnJS(navigateToProduct)(prevProduct.id, 'right');
+            } else {
+                translateX.value = withSpring(0);
+            }
+        });
+
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
-            <Stack.Screen options={{ headerShown: false, presentation: 'card' }} />
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <ArrowLeft size={24} color={Colors.light.text} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Add to Cart</Text>
-                <View style={{ width: 24 }} />
-            </View>
+        <GestureDetector gesture={panGesture}>
+            <Animated.View style={[{ flex: 1 }, animatedStyle]}>
+                <SafeAreaView style={styles.container} edges={['top']}>
+                    <Stack.Screen options={{ headerShown: false, presentation: 'card' }} />
+                    <View style={styles.header}>
+                        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                            <ArrowLeft size={24} color={Colors.light.text} />
+                        </TouchableOpacity>
+                    </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
-                <View style={styles.imageContainer}>
-                    <ScrollView
-                        horizontal
-                        pagingEnabled
-                        showsHorizontalScrollIndicator={false}
-                        onScroll={handleScroll}
-                        scrollEventThrottle={16}
-                    >
-                        {product.images.map((image, index) => (
-                            <TouchableOpacity
-                                key={index}
-                                activeOpacity={0.9}
-                                onPress={() => {
-                                    setActiveImageIndex(index);
-                                    setImageModalVisible(true);
-                                }}
+                    <ScrollView showsVerticalScrollIndicator={false}>
+                        <View style={styles.imageContainer}>
+                            <ScrollView
+                                horizontal
+                                pagingEnabled
+                                showsHorizontalScrollIndicator={false}
+                                onScroll={handleScroll}
+                                scrollEventThrottle={16}
                             >
-                                <Image
-                                    source={{ uri: image }}
-                                    style={[styles.productImage, { width: screenWidth }]}
-                                    contentFit="cover"
-                                />
-                            </TouchableOpacity>
-                        ))}
+                                {product.images.map((image, index) => (
+                                    <TouchableOpacity
+                                        key={index}
+                                        activeOpacity={0.9}
+                                        onPress={() => {
+                                            setActiveImageIndex(index);
+                                            setImageModalVisible(true);
+                                        }}
+                                    >
+                                        <Image
+                                            source={{ uri: image }}
+                                            style={[styles.productImage, { width: screenWidth }]}
+                                            contentFit="contain"
+                                        />
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                            {product.images.length > 1 && (
+                                <View style={styles.pagination}>
+                                    {product.images.map((_, index) => (
+                                        <View
+                                            key={index}
+                                            style={[
+                                                styles.paginationDot,
+                                                index === activeImageIndex && styles.paginationDotActive
+                                            ]}
+                                        />
+                                    ))}
+                                </View>
+                            )}
+                        </View>
+
+                        <FullScreenImageModal
+                            visible={imageModalVisible}
+                            images={product.images}
+                            initialIndex={activeImageIndex}
+                            onClose={() => setImageModalVisible(false)}
+                        />
+
+
+                        <View style={styles.productInfo}>
+                            <View style={styles.productHeader}>
+                                <Text style={styles.productName}>{product.name}</Text>
+                                {product.variations.length > 0 && (
+                                    <Badge label={`${product.variations.length} options`} size="sm" />
+                                )}
+                                <Text style={styles.productSku}>{product.sku}</Text>
+                                <Text style={styles.categoryName}>
+                                    {getCategoryById(product.categoryId)?.name || 'Uncategorized'}
+                                </Text>
+                            </View>
+
+                            <Text style={styles.productDescription}>{product.description}</Text>
+
+                            {product.variations.map(renderVariationSelector)}
+                        </View>
                     </ScrollView>
-                    {product.images.length > 1 && (
-                        <View style={styles.pagination}>
-                            {product.images.map((_, index) => (
-                                <View
-                                    key={index}
-                                    style={[
-                                        styles.paginationDot,
-                                        index === activeImageIndex && styles.paginationDotActive
-                                    ]}
-                                />
-                            ))}
+
+                    <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+                        <View style={styles.navigationRow}>
+                            <TouchableOpacity
+                                style={[styles.navButton, !prevProduct && styles.navButtonDisabled]}
+                                onPress={() => prevProduct && router.replace(`/(sales)/catalog/${prevProduct.id}`)}
+                                disabled={!prevProduct}
+                            >
+                                <ChevronLeft size={20} color={prevProduct ? Colors.light.text : Colors.light.textTertiary} />
+                            </TouchableOpacity>
+
+                            {effectiveMoq > 1 && (
+                                <View style={styles.moqContainer}>
+                                    <Text style={styles.moqText}>Sold in multiples of {effectiveMoq}</Text>
+                                </View>
+                            )}
+
+                            <TouchableOpacity
+                                style={[styles.navButton, !nextProduct && styles.navButtonDisabled]}
+                                onPress={() => nextProduct && router.replace(`/(sales)/catalog/${nextProduct.id}`)}
+                                disabled={!nextProduct}
+                            >
+                                <ChevronRight size={20} color={nextProduct ? Colors.light.text : Colors.light.textTertiary} />
+                            </TouchableOpacity>
                         </View>
-                    )}
-                </View>
 
-                <FullScreenImageModal
-                    visible={imageModalVisible}
-                    images={product.images}
-                    initialIndex={activeImageIndex}
-                    onClose={() => setImageModalVisible(false)}
-                />
-
-
-                <View style={styles.productInfo}>
-                    <View style={styles.productHeader}>
-                        <Text style={styles.productName}>{product.name}</Text>
-                        {product.variations.length > 0 && (
-                            <Badge label={`${product.variations.length} options`} size="sm" />
-                        )}
-                        <Text style={styles.productSku}>{product.sku}</Text>
-                        <Text style={styles.categoryName}>
-                            {getCategoryById(product.categoryId)?.name || 'Uncategorized'}
-                        </Text>
-                    </View>
-
-                    <Text style={styles.productDescription}>{product.description}</Text>
-
-                    {product.variations.map(renderVariationSelector)}
-                </View>
-            </ScrollView>
-
-            <View style={styles.footer}>
-                <View style={styles.navigationRow}>
-                    <TouchableOpacity
-                        style={[styles.navButton, !prevProduct && styles.navButtonDisabled]}
-                        onPress={() => prevProduct && router.replace(`/(sales)/catalog/${prevProduct.id}`)}
-                        disabled={!prevProduct}
-                    >
-                        <ChevronLeft size={20} color={prevProduct ? Colors.light.text : Colors.light.textTertiary} />
-                    </TouchableOpacity>
-
-                    {effectiveMoq > 1 && (
-                        <View style={styles.moqContainer}>
-                            <Text style={styles.moqText}>Sold in multiples of {effectiveMoq}</Text>
+                        <View style={styles.quantityRow}>
+                            <Text style={styles.quantityLabel}>Quantity</Text>
+                            <View style={styles.quantityControls}>
+                                <TouchableOpacity
+                                    style={[styles.quantityButton, quantity <= effectiveMoq && styles.quantityButtonDisabled]}
+                                    onPress={() => {
+                                        if (quantity > effectiveMoq) {
+                                            setQuantity(q => q - effectiveMoq);
+                                            Haptics.selectionAsync();
+                                        }
+                                    }}
+                                    disabled={quantity <= effectiveMoq}
+                                >
+                                    <Minus size={18} color={quantity > effectiveMoq ? Colors.light.text : Colors.light.textTertiary} />
+                                </TouchableOpacity>
+                                <Text style={styles.quantityValue}>{quantity}</Text>
+                                <TouchableOpacity
+                                    style={styles.quantityButton}
+                                    onPress={() => {
+                                        setQuantity(q => q + effectiveMoq);
+                                        Haptics.selectionAsync();
+                                    }}
+                                >
+                                    <Plus size={18} color={Colors.light.text} />
+                                </TouchableOpacity>
+                            </View>
                         </View>
-                    )}
-
-                    <TouchableOpacity
-                        style={[styles.navButton, !nextProduct && styles.navButtonDisabled]}
-                        onPress={() => nextProduct && router.replace(`/(sales)/catalog/${nextProduct.id}`)}
-                        disabled={!nextProduct}
-                    >
-                        <ChevronRight size={20} color={nextProduct ? Colors.light.text : Colors.light.textTertiary} />
-                    </TouchableOpacity>
-                </View>
-
-                <View style={styles.quantityRow}>
-                    <Text style={styles.quantityLabel}>Quantity</Text>
-                    <View style={styles.quantityControls}>
-                        <TouchableOpacity
-                            style={[styles.quantityButton, quantity <= effectiveMoq && styles.quantityButtonDisabled]}
-                            onPress={() => {
-                                if (quantity > effectiveMoq) {
-                                    setQuantity(q => q - effectiveMoq);
-                                    Haptics.selectionAsync();
-                                }
-                            }}
-                            disabled={quantity <= effectiveMoq}
-                        >
-                            <Minus size={18} color={quantity > effectiveMoq ? Colors.light.text : Colors.light.textTertiary} />
-                        </TouchableOpacity>
-                        <Text style={styles.quantityValue}>{quantity}</Text>
-                        <TouchableOpacity
-                            style={styles.quantityButton}
-                            onPress={() => {
-                                setQuantity(q => q + effectiveMoq);
-                                Haptics.selectionAsync();
-                            }}
-                        >
-                            <Plus size={18} color={Colors.light.text} />
-                        </TouchableOpacity>
+                        <Button
+                            title={`Add to Cart • R${calculatePrice().toFixed(2)}`}
+                            onPress={handleAddToCart}
+                            icon={<ShoppingCart size={20} color={Colors.light.primaryForeground} />}
+                            fullWidth
+                            size="lg"
+                        />
                     </View>
-                </View>
-                <Button
-                    title={`Add to Cart • R${calculatePrice().toFixed(2)}`}
-                    onPress={handleAddToCart}
-                    icon={<ShoppingCart size={20} color={Colors.light.primaryForeground} />}
-                    fullWidth
-                    size="lg"
-                />
-            </View>
-        </SafeAreaView>
+                </SafeAreaView>
+            </Animated.View>
+        </GestureDetector>
     );
 }
+
 
 const styles = StyleSheet.create({
     container: {
@@ -331,18 +382,24 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: 20,
-        paddingTop: 4,
-        paddingBottom: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: Colors.light.borderLight,
+        paddingBottom: 10,
     },
     headerTitle: {
-        fontSize: 18,
-        fontWeight: '600' as const,
-        color: Colors.light.text,
+        display: 'none',
     },
     backButton: {
-        padding: 4,
+        padding: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 20,
+        // Add shadow for better visibility on light images
+        shadowColor: "#000",
+        shadowOffset: {
+            width: 0,
+            height: 1,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+        elevation: 2,
     },
     emptyState: {
         flex: 1,
@@ -357,7 +414,7 @@ const styles = StyleSheet.create({
         position: 'relative',
     },
     productImage: {
-        height: 300,
+        height: 450,
         backgroundColor: Colors.light.surfaceSecondary,
     },
     pagination: {
@@ -455,7 +512,6 @@ const styles = StyleSheet.create({
     footer: {
         paddingHorizontal: 20,
         paddingTop: 12,
-        paddingBottom: 20, // Increased padding bottom for better spacing on non-safe area devices if needed, otherwise handled by SafeAreaView
         borderTopWidth: 1,
         borderTopColor: Colors.light.borderLight,
         backgroundColor: Colors.light.surface,

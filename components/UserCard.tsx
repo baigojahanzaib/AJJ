@@ -4,6 +4,7 @@ import { ChevronRight, Phone, Mail } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { User } from '@/types';
 import Badge from './Badge';
+import { DEFAULT_AVATARS, DEFAULT_AVATAR_KEYS } from '@/constants/avatars';
 
 interface UserCardProps {
   user: User;
@@ -14,7 +15,11 @@ export default function UserCard({ user, onPress }: UserCardProps) {
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
       <Image
-        source={{ uri: user.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&crop=face' }}
+        source={
+          user.avatar && DEFAULT_AVATARS[user.avatar]
+            ? DEFAULT_AVATARS[user.avatar]
+            : { uri: user.avatar || DEFAULT_AVATARS[DEFAULT_AVATAR_KEYS[Math.abs(user.name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)) % DEFAULT_AVATAR_KEYS.length]] }
+        }
         style={styles.avatar}
         contentFit="cover"
       />

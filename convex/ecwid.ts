@@ -1,6 +1,6 @@
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 
 // ============================================================================
@@ -488,5 +488,165 @@ export const testConnection = action({
                 message: `Connection error: ${error instanceof Error ? error.message : 'Unknown error'}`,
             };
         }
+    },
+});
+
+/**
+ * Sync an order to Ecwid
+ */
+export const syncOrderToEcwid = action({
+    args: {
+        orderId: v.id("orders"),
+    },
+    handler: async (ctx, args) => {
+        // Get settings
+        const settings = await ctx.runQuery(internal.ecwid.getSettingsInternal);
+        if (!settings || !settings.storeId || !settings.accessToken) {
+            console.error("Ecwid sync failed: Not configured");
+            return;
+        }
+
+        // Get order details
+        const order = await ctx.runQuery(internal.ecwid.getOrderDetails, { orderId: args.orderId });
+        if (!order) {
+            console.error("Ecwid sync failed: Order not found");
+            return;
+        }
+
+        if (order.ecwidOrderId) {
+            console.log("Order already synced to Ecwid:", order.ecwidOrderId);
+            return;
+        }
+
+        // Map order items to Ecwid format
+        const ecwidItems = order.items.map((item) => ({
+            name: item.productName,
+            price: item.unitPrice,
+            quantity: item.quantity,
+            sku: item.productSku,
+        }));
+
+        // Construct Ecwid Order object
+        let paymentStatus: "PAID" | "AWAITING_PAYMENT" = "AWAITING_PAYMENT";
+        let fulfillmentStatus: "AWAITING_PROCESSING" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELED" = "AWAITING_PROCESSING";
+
+        if (["confirmed", "processing", "shipped", "delivered"].includes(order.status)) {
+            paymentStatus = "PAID";
+        }
+
+        switch (order.status) {
+            case "processing":
+                fulfillmentStatus = "PROCESSING";
+                break;
+            case "shipped":
+                fulfillmentStatus = "SHIPPED";
+                break;
+            case "delivered":
+                fulfillmentStatus = "DELIVERED";
+                break;
+            case "cancelled":
+                fulfillmentStatus = "CANCELED";
+                break;
+            default:
+                fulfillmentStatus = "AWAITING_PROCESSING";
+        }
+
+        const ecwidOrder: any = {
+            subtotal: order.subtotal,
+            total: order.total,
+            email: order.customerEmail,
+            paymentStatus,
+            fulfillmentStatus,
+            items: ecwidItems,
+            billingPerson: {
+                name: order.customerName,
+                phone: order.customerPhone,
+                street: order.customerAddress,
+            },
+            shippingPerson: {
+                name: order.customerName,
+                phone: order.customerPhone,
+                street: order.customerAddress,
+            },
+            externalId: order._id,
+            privateAdminNotes: `Synced from AJJ Platform. Order #${order.orderNumber}. Sales Rep: ${order.salesRepName}`,
+        };
+
+        try {
+            const ECWID_API_BASE = "https://app.ecwid.com/api/v3";
+            const url = `${ECWID_API_BASE}/${settings.storeId}/orders`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    "Authorization": `Bearer ${settings.accessToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(ecwidOrder),
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Ecwid API error: ${response.status} - ${text}`);
+            }
+
+            const result = await response.json();
+
+            // Update order with Ecwid ID
+            await ctx.runMutation(internal.ecwid.updateOrderEcwidId, {
+                orderId: args.orderId,
+                ecwidOrderId: result.id
+            });
+
+            console.log(`Successfully synced order ${order.orderNumber} to Ecwid. Ecwid ID: ${result.id}`);
+
+        } catch (error) {
+            console.error("Failed to sync order to Ecwid:", error);
+        }
+    }
+});
+
+/**
+ * Internal query to get order details
+ */
+export const getOrderDetails = internalQuery({
+    args: { orderId: v.id("orders") },
+    handler: async (ctx, args) => {
+        return await ctx.db.get(args.orderId);
+    },
+});
+
+/**
+ * Internal mutation to update order with Ecwid ID
+ */
+export const updateOrderEcwidId = internalMutation({
+    args: {
+        orderId: v.id("orders"),
+        ecwidOrderId: v.union(v.string(), v.number())
+    },
+    handler: async (ctx, args) => {
+        await ctx.db.patch(args.orderId, {
+            ecwidOrderId: args.ecwidOrderId
+        });
+    },
+});
+
+/**
+ * Backfill existing orders to Ecwid (Manual Trigger)
+ */
+export const backfillOrders = internalMutation({
+    args: {},
+    handler: async (ctx) => {
+        const orders = await ctx.db.query("orders").collect();
+        let count = 0;
+        for (const order of orders) {
+            if (!order.ecwidOrderId) {
+                await ctx.scheduler.runAfter(0, api.ecwid.syncOrderToEcwid, {
+                    orderId: order._id
+                });
+                count++;
+            }
+        }
+        console.log(`Scheduled backfill sync for ${count} orders`);
+        return count;
     },
 });

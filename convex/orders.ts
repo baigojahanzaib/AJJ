@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 
 // Validators for order items
 const selectedVariationValidator = v.object({
@@ -84,6 +85,8 @@ export const create = mutation({
         customerPhone: v.string(),
         customerEmail: v.string(),
         customerAddress: v.string(),
+        latitude: v.optional(v.number()),
+        longitude: v.optional(v.number()),
         items: v.array(orderItemValidator),
         subtotal: v.number(),
         tax: v.number(),
@@ -103,12 +106,19 @@ export const create = mutation({
         const orderNumber = await generateOrderNumber(ctx);
         const now = new Date().toISOString();
 
-        return await ctx.db.insert("orders", {
+        const orderId = await ctx.db.insert("orders", {
             ...args,
             orderNumber,
             createdAt: now,
             updatedAt: now,
         });
+
+        // Trigger Ecwid sync
+        await ctx.scheduler.runAfter(0, internal.ecwid.syncOrderToEcwid, {
+            orderId,
+        });
+
+        return orderId;
     },
 });
 
@@ -145,6 +155,8 @@ export const update = mutation({
         customerPhone: v.optional(v.string()),
         customerEmail: v.optional(v.string()),
         customerAddress: v.optional(v.string()),
+        latitude: v.optional(v.number()),
+        longitude: v.optional(v.number()),
         items: v.optional(v.array(orderItemValidator)),
         subtotal: v.optional(v.number()),
         tax: v.optional(v.number()),

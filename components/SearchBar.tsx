@@ -42,13 +42,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.inputBackground,
     borderRadius: 12,
     paddingHorizontal: 14,
+    height: 44,
   },
   icon: {
     marginRight: 10,
   },
   input: {
     flex: 1,
-    paddingVertical: 14,
+    paddingVertical: 10,
     fontSize: 16,
     color: Colors.light.text,
   },

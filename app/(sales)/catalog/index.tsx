@@ -13,12 +13,18 @@ type SortOption = 'default' | 'price_low' | 'price_high';
 
 export default function SalesCatalog() {
   const router = useRouter();
-  const { activeProducts, activeCategories } = useData();
+  const {
+    activeCategories,
+    filteredSortedProducts,
+    searchQuery,
+    setSearchQuery,
+    activeFilter,
+    setActiveFilter,
+    sortBy,
+    setSortBy
+  } = useData();
   const { user } = useAuth();
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<{ type: 'all' | 'category' | 'ribbon'; id: string | null }>({ type: 'all', id: null });
-  const [sortBy, setSortBy] = useState<SortOption>('default');
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
@@ -31,7 +37,7 @@ export default function SalesCatalog() {
 
     // Add Ribbons
     const ribbons = new Set<string>();
-    activeProducts.forEach(product => {
+    filteredSortedProducts.forEach(product => {
       if (product.ribbon) {
         ribbons.add(product.ribbon);
       }
@@ -46,7 +52,7 @@ export default function SalesCatalog() {
     });
 
     return items;
-  }, [activeProducts, activeCategories]);
+  }, [filteredSortedProducts, activeCategories]);
 
   const sortOptions: { key: SortOption; label: string }[] = [
     { key: 'default', label: 'Default' },
@@ -58,32 +64,8 @@ export default function SalesCatalog() {
     return sortOptions.find(opt => opt.key === key)?.label || 'Default';
   };
 
-  const filteredProducts = useMemo(() => {
-    let products = activeProducts.filter(product => {
-      // Search filter
-      const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        product.sku.toLowerCase().includes(searchQuery.toLowerCase());
-
-      // Category/Ribbon filter
-      let matchesFilter = true;
-      if (activeFilter.type === 'category' && activeFilter.id) {
-        matchesFilter = product.categoryId === activeFilter.id;
-      } else if (activeFilter.type === 'ribbon' && activeFilter.id) {
-        matchesFilter = product.ribbon === activeFilter.id;
-      }
-
-      return matchesSearch && matchesFilter;
-    });
-
-    // Apply sorting
-    if (sortBy === 'price_low') {
-      products = [...products].sort((a, b) => a.basePrice - b.basePrice);
-    } else if (sortBy === 'price_high') {
-      products = [...products].sort((a, b) => b.basePrice - a.basePrice);
-    }
-
-    return products;
-  }, [activeProducts, searchQuery, activeFilter, sortBy]);
+  // Products are now managed by DataContext
+  const filteredProducts = filteredSortedProducts;
 
   const handleProductPress = (productId: string) => {
     router.push(`/(sales)/catalog/${productId}`);
@@ -179,7 +161,7 @@ export default function SalesCatalog() {
                 key={option.key}
                 style={styles.sortOption}
                 onPress={() => {
-                  setSortBy(option.key);
+                  setSortBy(option.key as any);
                   setSortModalVisible(false);
                 }}
               >

@@ -17,16 +17,9 @@ interface UserFormModalProps {
   editingUser?: User | null;
 }
 
-const sampleAvatars = [
-  'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&h=150&fit=crop&crop=face',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face',
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&h=150&fit=crop&crop=face',
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&h=150&fit=crop&crop=face',
-  'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=150&h=150&fit=crop&crop=face',
-  'https://images.unsplash.com/photo-1519345182560-3f2917c472ef?w=150&h=150&fit=crop&crop=face',
-];
+import { DEFAULT_AVATARS, DEFAULT_AVATAR_KEYS } from '@/constants/avatars';
+
+const sampleAvatars = DEFAULT_AVATAR_KEYS;
 
 export default function UserFormModal({ visible, onClose, onSave, editingUser }: UserFormModalProps) {
   const [name, setName] = useState('');
@@ -223,7 +216,11 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
                 ]}
                 onPress={() => selectAvatar(url)}
               >
-                <Image source={{ uri: url }} style={styles.avatarOptionImg} contentFit="cover" />
+                <Image
+                  source={DEFAULT_AVATARS[url] ? DEFAULT_AVATARS[url] : { uri: url }}
+                  style={styles.avatarOptionImg}
+                  contentFit="cover"
+                />
                 {avatar === url && (
                   <View style={styles.avatarSelectedOverlay}>
                     <Check size={24} color="#fff" />
@@ -274,12 +271,16 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.avatarSection}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.avatarContainer}
               onPress={() => setShowAvatarPicker(true)}
             >
               {avatar ? (
-                <Image source={{ uri: avatar }} style={styles.avatarImage} contentFit="cover" />
+                <Image
+                  source={avatar && DEFAULT_AVATARS[avatar] ? DEFAULT_AVATARS[avatar] : { uri: avatar }}
+                  style={styles.avatarImage}
+                  contentFit="cover"
+                />
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <UserIcon size={40} color={Colors.light.textTertiary} />

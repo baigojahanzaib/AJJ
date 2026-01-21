@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../convex/_generated/api';
-import { Product, Category, Order, User, Customer, DashboardStats, OrderEditLog } from '@/types';
+import { Product, Category, Order, User, Customer, DashboardStats, OrderEditLog, OrderStatus } from '@/types';
 import { Id } from '../convex/_generated/dataModel';
 import {
   saveProducts, getCachedProducts,
@@ -56,6 +56,8 @@ function mapOrder(doc: any): Order {
     customerPhone: doc.customerPhone,
     customerEmail: doc.customerEmail,
     customerAddress: doc.customerAddress,
+    latitude: doc.latitude,
+    longitude: doc.longitude,
     items: doc.items,
     subtotal: doc.subtotal,
     tax: doc.tax,
@@ -91,6 +93,8 @@ function mapCustomer(doc: any): Customer {
     phone: doc.phone,
     email: doc.email,
     address: doc.address,
+    latitude: doc.latitude,
+    longitude: doc.longitude,
     company: doc.company,
     isActive: doc.isActive,
     createdAt: doc.createdAt,
@@ -99,6 +103,9 @@ function mapCustomer(doc: any): Customer {
 
 import { useNotification } from './NotificationContext';
 import { useAuth } from './AuthContext';
+
+export type CatalogSortOption = 'default' | 'price_low' | 'price_high';
+export type CatalogFilter = { type: 'all' | 'category' | 'ribbon'; id: string | null };
 
 export const [DataProvider, useData] = createContextHook(() => {
   const { isOfflineMode, refreshPendingCount } = useOffline();
@@ -110,6 +117,11 @@ export const [DataProvider, useData] = createContextHook(() => {
   const [cachedCategories, setCachedCategories] = useState<Category[]>([]);
   const [cachedCustomers, setCachedCustomers] = useState<Customer[]>([]);
   const [cachedOrders, setCachedOrders] = useState<Order[]>([]);
+
+  // Catalog Shared State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<CatalogFilter>({ type: 'all', id: null });
+  const [sortBy, setSortBy] = useState<CatalogSortOption>('default');
 
   // Track previous orders for notifications
   const prevOrderIdsRef = useRef<Set<string>>(new Set());
@@ -161,9 +173,9 @@ export const [DataProvider, useData] = createContextHook(() => {
   const removeProductMutation = useMutation(api.products.remove);
   const createCategoryMutation = useMutation(api.categories.create);
   const updateCategoryMutation = useMutation(api.categories.update);
+  const updateOrderMutation = useMutation(api.orders.update);
   const createOrderMutation = useMutation(api.orders.create);
   const updateOrderStatusMutation = useMutation(api.orders.updateStatus);
-  const updateOrderMutation = useMutation(api.orders.update);
   const undoOrderEditMutation = useMutation(api.orders.undoEdit);
   const createUserMutation = useMutation(api.users.create);
   const updateUserMutation = useMutation(api.users.update);
@@ -257,6 +269,33 @@ export const [DataProvider, useData] = createContextHook(() => {
   const activeProducts = useMemo(() => products.filter(p => p.isActive), [products]);
   const activeCategories = useMemo(() => categories.filter(c => c.isActive), [categories]);
   const activeCustomers = useMemo(() => customers.filter(c => c.isActive), [customers]);
+
+  const filteredSortedProducts = useMemo(() => {
+    let prods = activeProducts.filter(product => {
+      // Search filter
+      const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        product.sku.toLowerCase().includes(searchQuery.toLowerCase());
+
+      // Category/Ribbon filter
+      let matchesFilter = true;
+      if (activeFilter.type === 'category' && activeFilter.id) {
+        matchesFilter = product.categoryId === activeFilter.id;
+      } else if (activeFilter.type === 'ribbon' && activeFilter.id) {
+        matchesFilter = product.ribbon === activeFilter.id;
+      }
+
+      return matchesSearch && matchesFilter;
+    });
+
+    // Apply sorting
+    if (sortBy === 'price_low') {
+      prods = [...prods].sort((a, b) => a.basePrice - b.basePrice);
+    } else if (sortBy === 'price_high') {
+      prods = [...prods].sort((a, b) => b.basePrice - a.basePrice);
+    }
+
+    return prods;
+  }, [activeProducts, searchQuery, activeFilter, sortBy]);
 
   const getProductById = useCallback((id: string) => {
     return products.find(p => p.id === id);
@@ -362,6 +401,8 @@ export const [DataProvider, useData] = createContextHook(() => {
       customerPhone: orderData.customerPhone,
       customerEmail: orderData.customerEmail,
       customerAddress: orderData.customerAddress,
+      latitude: orderData.latitude,
+      longitude: orderData.longitude,
       items: orderData.items,
       subtotal: orderData.subtotal,
       tax: orderData.tax,
@@ -476,6 +517,8 @@ export const [DataProvider, useData] = createContextHook(() => {
       phone: customer.phone,
       email: customer.email,
       address: customer.address,
+      latitude: customer.latitude,
+      longitude: customer.longitude,
       company: customer.company,
       isActive: customer.isActive,
     });
@@ -520,6 +563,13 @@ export const [DataProvider, useData] = createContextHook(() => {
     activeProducts,
     activeCategories,
     activeCustomers,
+    filteredSortedProducts,
+    searchQuery,
+    setSearchQuery,
+    activeFilter,
+    setActiveFilter,
+    sortBy,
+    setSortBy,
     dashboardStats,
     getProductById,
     getCategoryById,

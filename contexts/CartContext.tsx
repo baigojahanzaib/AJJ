@@ -9,6 +9,8 @@ export const [CartProvider, useCart] = createContextHook(() => {
     phone: '',
     email: '',
     address: '',
+    latitude: undefined as number | undefined,
+    longitude: undefined as number | undefined,
   });
   const [notes, setNotes] = useState('');
 
@@ -22,11 +24,11 @@ export const [CartProvider, useCart] = createContextHook(() => {
 
   const addItem = useCallback((product: Product, selectedVariations: SelectedVariation[], quantity: number = 1) => {
     console.log('[Cart] Adding item:', product.name, 'quantity:', quantity);
-    
+
     setItems(prev => {
       const variationKey = selectedVariations.map(v => `${v.variationId}:${v.optionId}`).sort().join('|');
-      const existingIndex = prev.findIndex(item => 
-        item.product.id === product.id && 
+      const existingIndex = prev.findIndex(item =>
+        item.product.id === product.id &&
         item.selectedVariations.map(v => `${v.variationId}:${v.optionId}`).sort().join('|') === variationKey
       );
 
@@ -58,7 +60,7 @@ export const [CartProvider, useCart] = createContextHook(() => {
 
   const updateQuantity = useCallback((itemId: string, quantity: number) => {
     console.log('[Cart] Updating quantity for item:', itemId, 'to:', quantity);
-    
+
     if (quantity <= 0) {
       setItems(prev => prev.filter(item => item.id !== itemId));
       return;
@@ -84,7 +86,7 @@ export const [CartProvider, useCart] = createContextHook(() => {
   const clearCart = useCallback(() => {
     console.log('[Cart] Clearing cart');
     setItems([]);
-    setCustomerInfo({ name: '', phone: '', email: '', address: '' });
+    setCustomerInfo({ name: '', phone: '', email: '', address: '', latitude: undefined, longitude: undefined });
     setNotes('');
   }, []);
 

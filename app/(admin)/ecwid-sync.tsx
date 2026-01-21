@@ -20,7 +20,7 @@ export default function EcwidSync() {
     const saveSettingsMutation = useMutation(api.ecwid.saveSettings);
     const testConnectionAction = useAction(api.ecwid.testConnection);
     const fullSyncAction = useAction(api.ecwid.fullSync);
-    const resetAndSetupAction = useAction(api.setup.resetAndSetup);
+
 
     // Local state
     const [storeId, setStoreId] = useState('32555156');
@@ -147,17 +147,7 @@ export default function EcwidSync() {
         }
     };
 
-    const handleReset = async () => {
-        setIsSyncing(true);
-        try {
-            await resetAndSetupAction({});
-            showAlert('Reset Complete', 'Database has been reset and fully synced from Ecwid.', 'success');
-        } catch (error) {
-            showAlert('Reset Failed', `${error}`, 'error');
-        } finally {
-            setIsSyncing(false);
-        }
-    };
+
 
     const formatDate = (dateString: string | null) => {
         if (!dateString) return 'Never';
@@ -385,28 +375,7 @@ export default function EcwidSync() {
                     </View>
                 </Card>
 
-                <Card style={[styles.autoSyncCard, { borderColor: Colors.light.danger, borderWidth: 1 }]}>
-                    <View style={styles.autoSyncRow}>
-                        <View style={styles.autoSyncInfo}>
-                            <View style={[styles.statusIconContainer, { backgroundColor: Colors.light.dangerLight }]}>
-                                <AlertCircle size={20} color={Colors.light.danger} />
-                            </View>
-                            <View style={styles.autoSyncText}>
-                                <Text style={styles.autoSyncTitle}>Danger Zone</Text>
-                                <Text style={styles.autoSyncDescription}>
-                                    Reset database and re-sync everything
-                                </Text>
-                            </View>
-                        </View>
-                        <TouchableOpacity
-                            style={{ backgroundColor: Colors.light.danger, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }}
-                            onPress={handleReset}
-                            disabled={isSyncing}
-                        >
-                            <Text style={{ color: 'white', fontWeight: 'bold' }}>Reset DB</Text>
-                        </TouchableOpacity>
-                    </View>
-                </Card>
+
 
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>

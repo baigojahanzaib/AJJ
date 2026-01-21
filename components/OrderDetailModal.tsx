@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, Pressable } from 'react-native';
+import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, Pressable, Linking, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { X, Eye, Edit3, Package, User, Phone, Mail, MapPin, FileText, ChevronDown } from 'lucide-react-native';
 import { Order, OrderStatus } from '@/types';
@@ -65,6 +65,20 @@ export default function OrderDetailModal({
     setShowStatusPicker(false);
     setSelectedStatus(null);
     onClose();
+  };
+
+  const handleOpenMap = (lat: number, lng: number) => {
+    const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
+    const latLng = `${lat},${lng}`;
+    const label = 'Order Location';
+    const url = Platform.select({
+      ios: `${scheme}${label}@${latLng}`,
+      android: `${scheme}${latLng}(${label})`
+    });
+
+    if (url) {
+      Linking.openURL(url);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -170,6 +184,22 @@ export default function OrderDetailModal({
               <View style={styles.infoTextContainer}>
                 <Text style={styles.infoLabel}>Address</Text>
                 <Text style={styles.infoValue}>{order.customerAddress}</Text>
+              </View>
+            </View>
+          )}
+          {(order.latitude !== undefined && order.longitude !== undefined) && (
+            <View style={styles.infoRow}>
+              <MapPin size={18} color={Colors.light.primary} />
+              <View style={styles.infoTextContainer}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Text style={styles.infoLabel}>Grid Coordinates</Text>
+                  <TouchableOpacity onPress={() => handleOpenMap(order.latitude!, order.longitude!)}>
+                    <Text style={{ fontSize: 12, color: Colors.light.primary, fontWeight: '600' }}>View on Map</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={[styles.infoValue, { fontFamily: 'monospace', fontSize: 13 }]}>
+                  {order.latitude.toFixed(6)}, {order.longitude.toFixed(6)}
+                </Text>
               </View>
             </View>
           )}

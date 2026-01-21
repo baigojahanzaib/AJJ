@@ -101,6 +101,9 @@ export default defineSchema({
         phone: v.string(),
         email: v.string(),
         address: v.string(),
+        // Location coordinates
+        latitude: v.optional(v.number()),
+        longitude: v.optional(v.number()),
         company: v.optional(v.string()),
         isActive: v.boolean(),
         createdAt: v.string(),
@@ -114,6 +117,8 @@ export default defineSchema({
         customerPhone: v.string(),
         customerEmail: v.string(),
         customerAddress: v.string(),
+        latitude: v.optional(v.number()),
+        longitude: v.optional(v.number()),
         items: v.array(orderItemValidator),
         subtotal: v.number(),
         tax: v.number(),
@@ -132,10 +137,12 @@ export default defineSchema({
         updatedAt: v.string(),
         previousVersion: v.optional(v.any()),
         editLog: v.optional(v.array(orderEditLogValidator)),
+        ecwidOrderId: v.optional(v.union(v.string(), v.number())),
     })
         .index("by_salesRep", ["salesRepId"])
         .index("by_status", ["status"])
-        .index("by_orderNumber", ["orderNumber"]),
+        .index("by_orderNumber", ["orderNumber"])
+        .index("by_ecwidOrderId", ["ecwidOrderId"]),
 
     // Ecwid integration settings (singleton table - only one record)
     ecwidSettings: defineTable({
