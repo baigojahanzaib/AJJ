@@ -2,8 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Dimensions, TouchableOpacity } from 'react-native';
 import * as Updates from 'expo-updates';
 import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
-import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
+import Colors from '@/constants/colors';
 
 interface UpdateHandlerProps {
     children: React.ReactNode;
@@ -40,7 +40,7 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
     const handleUpdateFlow = async () => {
         // Skip in development
         if (__DEV__ || !Updates.isEnabled) {
-            setStatusText('Development mode - skipping updates');
+            setStatusText('Development setup - skipping updates');
             animateProgress(1, 300);
             setTimeout(() => fadeOutAndComplete(), 500);
             return;
@@ -56,7 +56,7 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
 
             if (!update.isAvailable) {
                 // No update available - show completion
-                setStatusText('App is up to date!');
+                setStatusText('App is up to date');
                 animateProgress(1, 500);
                 setTimeout(() => fadeOutAndComplete(), 800);
                 return;
@@ -64,7 +64,7 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
 
             // Phase 2: Downloading update
             setUpdateState('downloading');
-            setStatusText('Downloading update...');
+            setStatusText('Downloading new version...');
             animateProgress(0.4, 300);
 
             // Simulate progress during download (since expo-updates doesn't provide real progress)
@@ -94,7 +94,7 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
                 await Updates.reloadAsync();
             } else {
                 // Update fetched but not new (edge case)
-                setStatusText('App is up to date!');
+                setStatusText('App is up to date');
                 animateProgress(1, 500);
                 setTimeout(() => fadeOutAndComplete(), 800);
             }
@@ -124,32 +124,29 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
         handleUpdateFlow();
     };
 
-    // Show maintenance screen if in maintenance mode
+    // Show maintenance screen if in maintenance mode (redesigned)
     if (!isLoading && isInMaintenance) {
         return (
             <View style={styles.container}>
-                <LinearGradient
-                    colors={['#1a1a2e', '#16213e']}
-                    style={styles.gradient}
-                >
-                    <View style={styles.content}>
-                        <Text style={styles.icon}>🔧</Text>
-                        <Text style={styles.title}>Under Maintenance</Text>
-                        <Text style={styles.message}>
-                            {maintenanceStatus.message || 'We\'re currently performing maintenance. Please try again later.'}
-                        </Text>
-                        <TouchableOpacity
-                            style={styles.retryButton}
-                            onPress={() => {
-                                if (Updates.isEnabled) {
-                                    Updates.reloadAsync();
-                                }
-                            }}
-                        >
-                            <Text style={styles.retryButtonText}>Retry</Text>
-                        </TouchableOpacity>
+                <View style={styles.contentContainer}>
+                    <View style={styles.logoWrapper}>
+                        <Text style={styles.appIcon}>🔧</Text>
                     </View>
-                </LinearGradient>
+                    <Text style={styles.title}>Under Maintenance</Text>
+                    <Text style={styles.message}>
+                        {maintenanceStatus.message || 'We\'re currently performing maintenance. Please try again later.'}
+                    </Text>
+                    <TouchableOpacity
+                        style={styles.retryButton}
+                        onPress={() => {
+                            if (Updates.isEnabled) {
+                                Updates.reloadAsync();
+                            }
+                        }}
+                    >
+                        <Text style={styles.retryButtonText}>Retry</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
         );
     }
@@ -159,123 +156,75 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
         return <>{children}</>;
     }
 
-    // Show full-screen update screen (Clash Royale style)
+    // Show full-screen update screen (Minimalist Design)
     return (
         <>
             {/* Pre-render children behind the update screen for faster transition */}
             <View style={styles.hiddenChildren}>{children}</View>
 
             <Animated.View style={[styles.updateScreen, { opacity: fadeAnim }]}>
-                <LinearGradient
-                    colors={['#0f0f1a', '#1a1a2e', '#16213e']}
-                    style={styles.gradient}
-                >
+                <View style={styles.container}>
                     {/* App Logo/Icon Area */}
                     <View style={styles.logoContainer}>
-                        <Text style={styles.appIcon}>📦</Text>
+                        <View style={styles.logoWrapper}>
+                            <Text style={styles.appIcon}>📦</Text>
+                        </View>
                         <Text style={styles.appName}>e-Order</Text>
                         <Text style={styles.versionText}>v{appVersion}</Text>
                     </View>
 
-                    {/* Status Text */}
-                    <View style={styles.statusContainer}>
-                        <Text style={styles.statusText}>{statusText}</Text>
-                        {error && <Text style={styles.errorText}>{error}</Text>}
-                    </View>
+                    <View style={styles.contentContainer}>
+                        {/* Status Text */}
+                        <View style={styles.statusContainer}>
+                            <Text style={styles.statusText}>{statusText}</Text>
+                            {error && <Text style={styles.errorText}>{error}</Text>}
+                        </View>
 
-                    {/* Progress Bar */}
-                    <View style={styles.progressContainer}>
-                        <View style={styles.progressTrack}>
-                            <Animated.View
-                                style={[
-                                    styles.progressBar,
-                                    {
-                                        width: progressAnim.interpolate({
-                                            inputRange: [0, 1],
-                                            outputRange: ['0%', '100%'],
-                                        }),
-                                    },
-                                ]}
-                            >
-                                <LinearGradient
-                                    colors={['#4f46e5', '#7c3aed', '#a855f7']}
-                                    start={{ x: 0, y: 0 }}
-                                    end={{ x: 1, y: 0 }}
-                                    style={styles.progressGradient}
+                        {/* Progress Bar */}
+                        <View style={styles.progressContainer}>
+                            <View style={styles.progressTrack}>
+                                <Animated.View
+                                    style={[
+                                        styles.progressBar,
+                                        {
+                                            width: progressAnim.interpolate({
+                                                inputRange: [0, 1],
+                                                outputRange: ['0%', '100%'],
+                                            }),
+                                        },
+                                    ]}
                                 />
-                            </Animated.View>
+                            </View>
+
+                            {/* Progress percentage */}
+                            <Animated.Text style={styles.progressPercent}>
+                                {progressAnim.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: ['0%', '100%'],
+                                })}
+                            </Animated.Text>
                         </View>
 
-                        {/* Progress percentage */}
-                        <Animated.Text style={styles.progressPercent}>
-                            {progressAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: ['0%', '100%'],
-                            })}
-                        </Animated.Text>
+                        {/* Retry button for errors */}
+                        {updateState === 'error' && (
+                            <TouchableOpacity style={styles.retryButton} onPress={retryUpdate}>
+                                <Text style={styles.retryButtonText}>Retry</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
-
-                    {/* Retry button for errors */}
-                    {updateState === 'error' && (
-                        <TouchableOpacity style={styles.retryButton} onPress={retryUpdate}>
-                            <Text style={styles.retryButtonText}>Retry</Text>
-                        </TouchableOpacity>
-                    )}
-
-                    {/* Loading dots animation */}
-                    {updateState !== 'error' && (
-                        <View style={styles.dotsContainer}>
-                            <LoadingDots />
-                        </View>
-                    )}
-                </LinearGradient>
+                </View>
             </Animated.View>
         </>
-    );
-}
-
-// Animated loading dots component
-function LoadingDots() {
-    const dot1 = useRef(new Animated.Value(0.3)).current;
-    const dot2 = useRef(new Animated.Value(0.3)).current;
-    const dot3 = useRef(new Animated.Value(0.3)).current;
-
-    useEffect(() => {
-        const animateDot = (dot: Animated.Value, delay: number) => {
-            Animated.loop(
-                Animated.sequence([
-                    Animated.delay(delay),
-                    Animated.timing(dot, {
-                        toValue: 1,
-                        duration: 400,
-                        useNativeDriver: true,
-                    }),
-                    Animated.timing(dot, {
-                        toValue: 0.3,
-                        duration: 400,
-                        useNativeDriver: true,
-                    }),
-                ])
-            ).start();
-        };
-
-        animateDot(dot1, 0);
-        animateDot(dot2, 150);
-        animateDot(dot3, 300);
-    }, []);
-
-    return (
-        <View style={styles.dots}>
-            <Animated.View style={[styles.dot, { opacity: dot1 }]} />
-            <Animated.View style={[styles.dot, { opacity: dot2 }]} />
-            <Animated.View style={[styles.dot, { opacity: dot3 }]} />
-        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+        backgroundColor: Colors.light.background,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 40,
     },
     hiddenChildren: {
         position: 'absolute',
@@ -288,117 +237,113 @@ const styles = StyleSheet.create({
     updateScreen: {
         ...StyleSheet.absoluteFillObject,
         zIndex: 9999,
+        backgroundColor: Colors.light.background,
     },
-    gradient: {
-        flex: 1,
-        justifyContent: 'center',
+    contentContainer: {
+        width: '100%',
         alignItems: 'center',
-        paddingHorizontal: 40,
-    },
-    content: {
-        alignItems: 'center',
-        padding: 32,
     },
     logoContainer: {
         alignItems: 'center',
         marginBottom: 60,
     },
+    logoWrapper: {
+        width: 100,
+        height: 100,
+        borderRadius: 24,
+        backgroundColor: Colors.light.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 24,
+        shadowColor: Colors.light.text,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 5,
+        borderWidth: 1,
+        borderColor: Colors.light.border,
+    },
     appIcon: {
-        fontSize: 80,
-        marginBottom: 16,
+        fontSize: 48,
     },
     appName: {
-        fontSize: 32,
-        fontWeight: 'bold',
-        color: '#fff',
-        letterSpacing: 2,
+        fontSize: 28,
+        fontWeight: '700',
+        color: Colors.light.text,
+        letterSpacing: -0.5,
     },
     versionText: {
         fontSize: 14,
-        color: '#64748b',
+        color: Colors.light.textTertiary,
         marginTop: 8,
+        fontWeight: '500',
     },
     statusContainer: {
         alignItems: 'center',
-        marginBottom: 32,
-        minHeight: 50,
+        marginBottom: 24,
+        height: 40,
+        justifyContent: 'center',
     },
     statusText: {
         fontSize: 16,
-        color: '#94a3b8',
+        color: Colors.light.textSecondary,
         textAlign: 'center',
+        fontWeight: '500',
     },
     errorText: {
         fontSize: 14,
-        color: '#f87171',
+        color: Colors.light.danger,
         textAlign: 'center',
-        marginTop: 8,
+        marginTop: 4,
     },
     progressContainer: {
         width: '100%',
-        alignItems: 'center',
+        maxWidth: 280,
     },
     progressTrack: {
         width: '100%',
-        height: 8,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: 4,
+        height: 6,
+        backgroundColor: Colors.light.surfaceSecondary,
+        borderRadius: 3,
         overflow: 'hidden',
     },
     progressBar: {
         height: '100%',
-        borderRadius: 4,
-        overflow: 'hidden',
-    },
-    progressGradient: {
-        flex: 1,
+        backgroundColor: Colors.light.primary,
+        borderRadius: 3,
     },
     progressPercent: {
         fontSize: 12,
-        color: '#64748b',
+        color: Colors.light.textTertiary,
         marginTop: 12,
+        textAlign: 'right',
+        fontWeight: '600',
+        fontVariant: ['tabular-nums'],
     },
-    dotsContainer: {
-        marginTop: 40,
+    retryButton: {
+        marginTop: 32,
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        backgroundColor: Colors.light.primary,
+        borderRadius: 12,
     },
-    dots: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    dot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: '#4f46e5',
-    },
-    icon: {
-        fontSize: 64,
-        marginBottom: 24,
+    retryButtonText: {
+        color: Colors.light.primaryForeground,
+        fontSize: 14,
+        fontWeight: '600',
     },
     title: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#fff',
+        fontSize: 24,
+        fontWeight: '700',
+        color: Colors.light.text,
         marginBottom: 16,
         textAlign: 'center',
     },
     message: {
         fontSize: 16,
-        color: '#94a3b8',
+        color: Colors.light.textSecondary,
         textAlign: 'center',
         lineHeight: 24,
         marginBottom: 32,
-    },
-    retryButton: {
-        backgroundColor: '#4f46e5',
-        paddingHorizontal: 32,
-        paddingVertical: 14,
-        borderRadius: 12,
-        marginTop: 24,
-    },
-    retryButtonText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '600',
     },
 });
