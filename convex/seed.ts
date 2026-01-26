@@ -25,7 +25,7 @@ export const seedDatabase = mutation({
         // Seed Ecwid Settings
         await ctx.db.insert("ecwidSettings", {
             storeId: "32555156",
-            accessToken: "secret_KTawLq5R9xb2PfxX5ynP2uMV5k2igWES",
+            accessToken: "secret_tR1hfT1NMpvhighzXFKJAPKv928rASkX",
             autoSyncEnabled: true,
             syncIntervalHours: 24,
         });

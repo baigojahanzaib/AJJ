@@ -107,18 +107,25 @@ export const updateSyncStatus = internalMutation({
         message: v.optional(v.string()),
         productCount: v.optional(v.number()),
         categoryCount: v.optional(v.number()),
+        successfulSyncTime: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         const settings = await ctx.db.query("ecwidSettings").first();
         if (!settings) return;
 
-        await ctx.db.patch(settings._id, {
+        const updates: any = {
             lastSyncAt: new Date().toISOString(),
             lastSyncStatus: args.status,
             lastSyncMessage: args.message,
             lastSyncProductCount: args.productCount,
             lastSyncCategoryCount: args.categoryCount,
-        });
+        };
+
+        if (args.successfulSyncTime) {
+            updates.lastSuccessfulSyncAt = args.successfulSyncTime;
+        }
+
+        await ctx.db.patch(settings._id, updates);
     },
 });
 
@@ -152,6 +159,18 @@ export const upsertCategory = internalMutation({
         }
 
         if (existing) {
+            // Check for changes
+            if (
+                existing.name === args.name &&
+                existing.description === args.description &&
+                existing.image === args.image &&
+                existing.parentId === parentId &&
+                existing.isActive === args.isActive
+            ) {
+                // No changes, skip write
+                return existing._id;
+            }
+
             await ctx.db.patch(existing._id, {
                 name: args.name,
                 description: args.description,
@@ -167,6 +186,70 @@ export const upsertCategory = internalMutation({
                 image: args.image,
                 parentId,
                 isActive: args.isActive,
+                createdAt: new Date().toISOString(),
+                ecwidId: args.ecwidId,
+            });
+        }
+    },
+});
+
+/**
+ * Upsert a customer from Ecwid (internal)
+ */
+export const upsertCustomer = internalMutation({
+    args: {
+        ecwidId: v.number(),
+        email: v.string(),
+        name: v.string(),
+        phone: v.string(),
+        address: v.string(),
+        city: v.optional(v.string()),
+        countryCode: v.optional(v.string()),
+        postalCode: v.optional(v.string()),
+        company: v.optional(v.string()),
+    },
+    handler: async (ctx, args) => {
+        // Check if customer exists by email (primary key for customers table)
+        const existing = await ctx.db
+            .query("customers")
+            .withIndex("by_email", (q) => q.eq("email", args.email))
+            .first();
+
+        // Format address
+        let fullAddress = args.address;
+        if (args.city) fullAddress += `, ${args.city}`;
+        if (args.countryCode) fullAddress += `, ${args.countryCode}`;
+        if (args.postalCode) fullAddress += ` ${args.postalCode}`;
+        fullAddress = fullAddress.replace(/^, /, "").trim();
+
+        if (existing) {
+            // Check for changes
+            if (
+                existing.name === args.name &&
+                existing.phone === args.phone &&
+                existing.address === fullAddress &&
+                existing.company === args.company &&
+                existing.ecwidId === args.ecwidId
+            ) {
+                return existing._id;
+            }
+
+            await ctx.db.patch(existing._id, {
+                name: args.name,
+                phone: args.phone,
+                address: fullAddress,
+                company: args.company,
+                ecwidId: args.ecwidId,
+            });
+            return existing._id;
+        } else {
+            return await ctx.db.insert("customers", {
+                name: args.name,
+                phone: args.phone,
+                email: args.email,
+                address: fullAddress,
+                company: args.company,
+                isActive: true, // Default to active for synced customers
                 createdAt: new Date().toISOString(),
                 ecwidId: args.ecwidId,
             });
@@ -203,6 +286,7 @@ export const upsertProduct = internalMutation({
         stock: v.number(),
         ribbon: v.optional(v.string()),
         ribbonColor: v.optional(v.string()),
+        moq: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
         // Check if product exists by ecwidId
@@ -237,6 +321,26 @@ export const upsertProduct = internalMutation({
         }
 
         if (existing) {
+            // Check for changes
+            if (
+                existing.name === args.name &&
+                existing.description === args.description &&
+                existing.sku === args.sku &&
+                existing.basePrice === args.basePrice &&
+                existing.compareAtPrice === args.compareAtPrice &&
+                JSON.stringify(existing.images) === JSON.stringify(args.images) &&
+                existing.categoryId === categoryId &&
+                existing.isActive === args.isActive &&
+                JSON.stringify(existing.variations) === JSON.stringify(args.variations) &&
+                existing.stock === args.stock &&
+                existing.ribbon === args.ribbon &&
+                existing.ribbonColor === args.ribbonColor &&
+                existing.moq === args.moq
+            ) {
+                // No changes, skip write
+                return existing._id;
+            }
+
             await ctx.db.patch(existing._id, {
                 name: args.name,
                 description: args.description,
@@ -250,6 +354,7 @@ export const upsertProduct = internalMutation({
                 stock: args.stock,
                 ribbon: args.ribbon,
                 ribbonColor: args.ribbonColor,
+                moq: args.moq,
             });
             return existing._id;
         } else {
@@ -266,6 +371,7 @@ export const upsertProduct = internalMutation({
                 stock: args.stock,
                 ribbon: args.ribbon,
                 ribbonColor: args.ribbonColor,
+                moq: args.moq,
                 createdAt: new Date().toISOString(),
                 ecwidId: args.ecwidId,
             });
@@ -278,7 +384,7 @@ export const upsertProduct = internalMutation({
 // ============================================================================
 
 /**
- * Full sync from Ecwid - fetches categories and products
+ * Full sync from Ecwid - fetches categories, products, and customers
  */
 export const fullSync = action({
     args: {},
@@ -360,7 +466,6 @@ export const fullSync = action({
                 const prodData = await prodResponse.json();
 
                 for (const prod of prodData.items) {
-                    console.log('Ecwid Product:', JSON.stringify(prod, null, 2));
                     // Build images array
                     const images: string[] = [];
                     if (prod.imageUrl) images.push(prod.imageUrl);
@@ -400,6 +505,20 @@ export const fullSync = action({
                     // Strip HTML from description
                     const description = (prod.description || "").replace(/<[^>]*>/g, '').trim();
 
+                    // Extract MOQ from attributes
+                    let moq = undefined;
+                    if (prod.attributes && Array.isArray(prod.attributes)) {
+                        const moqAttr = prod.attributes.find((attr: any) =>
+                            attr.name && attr.name.toLowerCase() === 'moq'
+                        );
+                        if (moqAttr && moqAttr.value) {
+                            const parsedMoq = parseFloat(moqAttr.value);
+                            if (!isNaN(parsedMoq) && parsedMoq > 0) {
+                                moq = parsedMoq;
+                            }
+                        }
+                    }
+
                     await ctx.runMutation(internal.ecwid.upsertProduct, {
                         ecwidId: prod.id,
                         name: prod.name || "Unnamed Product",
@@ -414,6 +533,7 @@ export const fullSync = action({
                         stock: prod.quantity || 0,
                         ribbon: prod.ribbon?.text,
                         ribbonColor: prod.ribbon?.color,
+                        moq,
                     });
                     productCount++;
                 }
@@ -422,15 +542,61 @@ export const fullSync = action({
                 offset += limit;
             }
 
+            // =========================================
+            // Fetch and sync customers
+            // =========================================
+            // Customer sync temporarily disabled by user request
+            let customerCount = 0;
+            /*
+            offset = 0;
+
+            while (true) {
+                const custUrl = `${ECWID_API_BASE}/${settings.storeId}/customers?offset=${offset}&limit=${limit}`;
+                const custResponse = await fetch(custUrl, {
+                    headers: {
+                        "Authorization": `Bearer ${settings.accessToken}`,
+                        "Content-Type": "application/json",
+                    },
+                });
+
+                if (!custResponse.ok) {
+                    const errorText = await custResponse.text();
+                    throw new Error(`Ecwid API error (customers): ${custResponse.status} - ${errorText}`);
+                }
+
+                const custData = await custResponse.json();
+
+                for (const cust of custData.items) {
+                    if (!cust.email) continue;
+
+                    await ctx.runMutation(internal.ecwid.upsertCustomer, {
+                        ecwidId: cust.id,
+                        email: cust.email,
+                        name: cust.name || cust.billingPerson?.name || "Unknown Name",
+                        phone: cust.billingPerson?.phone || "",
+                        address: cust.billingPerson?.street || "",
+                        city: cust.billingPerson?.city,
+                        countryCode: cust.billingPerson?.countryCode,
+                        postalCode: cust.billingPerson?.postalCode,
+                        company: cust.billingPerson?.company,
+                    });
+                    customerCount++;
+                }
+
+                if (offset + custData.count >= custData.total) break;
+                offset += limit;
+            }
+            */
+
             // Update status to success
             await ctx.runMutation(internal.ecwid.updateSyncStatus, {
                 status: "success",
-                message: `Successfully synced ${categoryCount} categories and ${productCount} products`,
+                message: `Successfully synced ${categoryCount} categories, ${productCount} products, and ${customerCount} customers`,
                 productCount,
                 categoryCount,
             });
 
-            return { success: true, categoryCount, productCount };
+            return { success: true, categoryCount, productCount, customerCount };
 
         } catch (error) {
             const message = error instanceof Error ? error.message : "Unknown error";
@@ -517,11 +683,29 @@ const syncOrderToEcwidHandler = async (ctx: any, args: { orderId: any }) => {
     }
 
     // Map order items to Ecwid format
-    const ecwidItems = order.items.map((item: any) => ({
-        name: item.productName,
-        price: item.unitPrice,
-        quantity: item.quantity,
-        sku: item.productSku,
+    const ecwidItems = await Promise.all(order.items.map(async (item: any) => {
+        // Try to find the product to get its Ecwid ID
+        let productId: number | undefined;
+        let sku = item.productSku;
+
+        if (item.productId) {
+            const product = await ctx.runQuery(internal.ecwid.getProductInternal, {
+                productId: item.productId
+            });
+            if (product && product.ecwidId) {
+                productId = product.ecwidId;
+                // Prefer product SKU if available to ensure match
+                if (product.sku) sku = product.sku;
+            }
+        }
+
+        return {
+            name: item.productName,
+            price: item.unitPrice,
+            quantity: item.quantity,
+            sku: sku,
+            productId: productId, // Important for inventory sync
+        };
     }));
 
     // Construct Ecwid Order object
@@ -610,12 +794,110 @@ export const syncOrderToEcwid = action({
 });
 
 /**
+ * Sync order status to Ecwid
+ */
+export const syncOrderStatusToEcwid = action({
+    args: {
+        orderId: v.id("orders"),
+        status: v.string(),
+    },
+    handler: async (ctx, args) => {
+        // Get settings
+        const settings = await ctx.runQuery(internal.ecwid.getSettingsInternal);
+        if (!settings || !settings.storeId || !settings.accessToken) {
+            console.error("Ecwid sync failed: Not configured");
+            return;
+        }
+
+        // Get order details
+        const order = await ctx.runQuery(internal.ecwid.getOrderDetails, { orderId: args.orderId });
+        if (!order) {
+            console.error("Ecwid sync failed: Order not found");
+            return;
+        }
+
+        if (!order.ecwidOrderId) {
+            console.warn(`Order ${order.orderNumber} is not synced to Ecwid yet. Attempting full sync.`);
+            await syncOrderToEcwidHandler(ctx, { orderId: args.orderId });
+            return;
+        }
+
+        let paymentStatus = "AWAITING_PAYMENT";
+        let fulfillmentStatus = "AWAITING_PROCESSING";
+
+        if (["confirmed", "processing", "shipped", "delivered"].includes(args.status)) {
+            paymentStatus = "PAID";
+        }
+
+        switch (args.status) {
+            case "processing":
+                fulfillmentStatus = "PROCESSING";
+                break;
+            case "shipped":
+                fulfillmentStatus = "SHIPPED";
+                break;
+            case "delivered":
+                fulfillmentStatus = "DELIVERED";
+                break;
+            case "cancelled":
+                fulfillmentStatus = "CANCELED";
+                break;
+            default:
+                fulfillmentStatus = "AWAITING_PROCESSING";
+        }
+
+        try {
+            const ECWID_API_BASE = "https://app.ecwid.com/api/v3";
+            const url = `${ECWID_API_BASE}/${settings.storeId}/orders/${order.ecwidOrderId}`;
+
+            const response = await fetch(url, {
+                method: 'PUT',
+                headers: {
+                    "Authorization": `Bearer ${settings.accessToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    paymentStatus,
+                    fulfillmentStatus,
+                }),
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(`Ecwid API error (update status): ${response.status} - ${text}`);
+            }
+
+            console.log(`Successfully updated order ${order.orderNumber} status in Ecwid.`);
+
+        } catch (error) {
+            console.error("Failed to update Ecwid order status:", error);
+        }
+    }
+});
+
+/**
  * Internal query to get order details
  */
 export const getOrderDetails = internalQuery({
     args: { orderId: v.id("orders") },
     handler: async (ctx, args) => {
         return await ctx.db.get(args.orderId);
+    },
+});
+
+/**
+ * Internal query to get product details (for linking)
+ */
+export const getProductInternal = internalQuery({
+    args: { productId: v.string() },
+    handler: async (ctx, args) => {
+        // Try getting by ID first
+        try {
+            // @ts-ignore
+            return await ctx.db.get(args.productId);
+        } catch (e) {
+            return null;
+        }
     },
 });
 

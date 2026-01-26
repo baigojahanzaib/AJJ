@@ -38,6 +38,18 @@ export const byCategory = query({
     },
 });
 
+// Get products by ribbon (e.g. "Promotion")
+export const byRibbon = query({
+    args: { ribbon: v.string() },
+    handler: async (ctx, args) => {
+        const products = await ctx.db
+            .query("products")
+            .withIndex("by_ribbon", (q) => q.eq("ribbon", args.ribbon))
+            .collect();
+        return products.filter((p) => p.isActive);
+    },
+});
+
 // Search products
 export const search = query({
     args: { query: v.string() },

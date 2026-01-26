@@ -49,11 +49,18 @@ export const checkAndSync = internalAction({
 
         // Check if a sync is already in progress
         if (settings.lastSyncStatus === "in_progress") {
-            console.log("[Ecwid Cron] Sync already in progress, skipping");
-            return;
+            // Check if "in_progress" is stale (older than 1 hour)
+            const lastSyncAt = settings.lastSyncAt ? new Date(settings.lastSyncAt) : null;
+            if (lastSyncAt && (Date.now() - lastSyncAt.getTime()) > 1000 * 60 * 60) {
+                console.log("[Ecwid Cron] Found stale in_progress status (older than 1h), resetting...");
+            } else {
+                console.log("[Ecwid Cron] Sync already in progress, skipping");
+                return;
+            }
         }
 
         console.log("[Ecwid Cron] Starting auto-sync...");
+        const syncStartTime = new Date().toISOString();
 
         try {
             // Import and call the fullSync action
@@ -66,13 +73,30 @@ export const checkAndSync = internalAction({
                 message: "Auto-sync starting...",
             });
 
+            // Determine incremental sync parameter
+            let updatedFromParam = "";
+            let isIncremental = false;
+
+            // Only use incremental sync if we have a successful previous sync
+            if (settings.lastSuccessfulSyncAt) {
+                const lastSuccess = new Date(settings.lastSuccessfulSyncAt);
+                if (!isNaN(lastSuccess.getTime())) {
+                    // Buffer: Go back 5 minutes to ensure no overlap overlap issues
+                    // Ecwid expects UNIX timestamp
+                    const unixTime = Math.floor((lastSuccess.getTime() - 5 * 60 * 1000) / 1000);
+                    updatedFromParam = `&updatedFrom=${unixTime}`;
+                    isIncremental = true;
+                    console.log(`[Ecwid Cron] Performing incremental sync since ${settings.lastSuccessfulSyncAt}`);
+                }
+            }
+
             // Sync categories
             let categoryCount = 0;
             let offset = 0;
             const limit = 100;
 
             while (true) {
-                const catUrl = `${ECWID_API_BASE}/${settings.storeId}/categories?offset=${offset}&limit=${limit}`;
+                const catUrl = `${ECWID_API_BASE}/${settings.storeId}/categories?offset=${offset}&limit=${limit}${updatedFromParam}`;
                 const catResponse = await fetch(catUrl, {
                     headers: {
                         "Authorization": `Bearer ${settings.accessToken}`,
@@ -98,6 +122,7 @@ export const checkAndSync = internalAction({
                     categoryCount++;
                 }
 
+                // If incremental, we might get fewer results than limit, so we just check count
                 if (offset + catData.count >= catData.total) break;
                 offset += limit;
             }
@@ -107,7 +132,7 @@ export const checkAndSync = internalAction({
             offset = 0;
 
             while (true) {
-                const prodUrl = `${ECWID_API_BASE}/${settings.storeId}/products?offset=${offset}&limit=${limit}`;
+                const prodUrl = `${ECWID_API_BASE}/${settings.storeId}/products?offset=${offset}&limit=${limit}${updatedFromParam}`;
                 const prodResponse = await fetch(prodUrl, {
                     headers: {
                         "Authorization": `Bearer ${settings.accessToken}`,
@@ -184,6 +209,7 @@ export const checkAndSync = internalAction({
                 message: `Auto-sync: ${categoryCount} categories, ${productCount} products`,
                 productCount,
                 categoryCount,
+                successfulSyncTime: syncStartTime,
             });
 
             console.log(`[Ecwid Cron] Auto-sync complete: ${categoryCount} categories, ${productCount} products`);

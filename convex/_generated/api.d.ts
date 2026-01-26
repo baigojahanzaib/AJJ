@@ -10,6 +10,7 @@
 
 import type * as appConfig from "../appConfig.js";
 import type * as categories from "../categories.js";
+import type * as checkPromotionsQuery from "../checkPromotionsQuery.js";
 import type * as crons from "../crons.js";
 import type * as customers from "../customers.js";
 import type * as ecwid from "../ecwid.js";
@@ -30,6 +31,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   appConfig: typeof appConfig;
   categories: typeof categories;
+  checkPromotionsQuery: typeof checkPromotionsQuery;
   crons: typeof crons;
   customers: typeof customers;
   ecwid: typeof ecwid;

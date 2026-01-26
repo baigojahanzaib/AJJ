@@ -107,7 +107,9 @@ export default defineSchema({
         company: v.optional(v.string()),
         isActive: v.boolean(),
         createdAt: v.string(),
-    }).index("by_email", ["email"]),
+        ecwidId: v.optional(v.number()),
+    }).index("by_email", ["email"])
+        .index("by_ecwidId", ["ecwidId"]),
 
     orders: defineTable({
         orderNumber: v.string(),
@@ -151,6 +153,7 @@ export default defineSchema({
         autoSyncEnabled: v.boolean(),
         syncIntervalHours: v.number(),
         lastSyncAt: v.optional(v.string()),
+        lastSuccessfulSyncAt: v.optional(v.string()),
         lastSyncStatus: v.optional(v.union(
             v.literal("success"),
             v.literal("error"),
