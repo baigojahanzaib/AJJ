@@ -38,7 +38,7 @@ export default function SalesProfile() {
   const appVersion = Constants.expoConfig?.version || '1.0.0';
   const updateId = Updates.updateId;
   const isEmbedded = Updates.isEmbeddedLaunch;
-  const channel = Updates.channel;
+  const channel = Updates.channel || (Updates.updateId ? 'production' : null);
 
   // Check for updates on mount
   useEffect(() => {

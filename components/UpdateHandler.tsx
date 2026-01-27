@@ -15,6 +15,7 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
     const [updateState, setUpdateState] = useState<'checking' | 'downloading' | 'ready' | 'done' | 'error'>('checking');
     const [statusText, setStatusText] = useState('Checking for updates...');
     const [error, setError] = useState<string | null>(null);
+    const [progressPercent, setProgressPercent] = useState(0); // Track progress as number for display
 
     // Animated progress value (0 to 1)
     const progressAnim = useRef(new Animated.Value(0)).current;
@@ -24,6 +25,14 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
     const { isInMaintenance, maintenanceStatus, isLoading } = useRemoteConfig();
 
     const appVersion = Constants.expoConfig?.version || '1.0.0';
+
+    // Listen to progress animation value changes
+    useEffect(() => {
+        const listenerId = progressAnim.addListener(({ value }) => {
+            setProgressPercent(Math.round(value * 100));
+        });
+        return () => progressAnim.removeListener(listenerId);
+    }, []);
 
     useEffect(() => {
         handleUpdateFlow();
@@ -197,12 +206,9 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
                             </View>
 
                             {/* Progress percentage */}
-                            <Animated.Text style={styles.progressPercent}>
-                                {progressAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: ['0%', '100%'],
-                                })}
-                            </Animated.Text>
+                            <Text style={styles.progressPercent}>
+                                {progressPercent}%
+                            </Text>
                         </View>
 
                         {/* Retry button for errors */}

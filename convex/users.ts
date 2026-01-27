@@ -1,5 +1,20 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { QueryCtx } from "./_generated/server";
+
+// Helper to resolve avatar - handles both storage IDs and external URLs
+async function resolveAvatarUrl(ctx: QueryCtx, avatar: string | undefined): Promise<string | undefined> {
+    if (!avatar) return undefined;
+    // If it's a default avatar or already a URL, return as-is or undefined
+    if (avatar.startsWith("default-")) return undefined;
+    if (avatar.startsWith("http://") || avatar.startsWith("https://")) return avatar;
+    // Otherwise, treat as Convex storage ID
+    try {
+        return await ctx.storage.getUrl(avatar) ?? undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 // List all users
 export const list = query({
@@ -9,7 +24,7 @@ export const list = query({
         return await Promise.all(
             users.map(async (user) => ({
                 ...user,
-                avatarUrl: (user.avatar && !user.avatar.startsWith("default-")) ? await ctx.storage.getUrl(user.avatar) : undefined,
+                avatarUrl: await resolveAvatarUrl(ctx, user.avatar),
             }))
         );
     },
@@ -23,7 +38,7 @@ export const getById = query({
         if (!user) return null;
         return {
             ...user,
-            avatarUrl: (user.avatar && !user.avatar.startsWith("default-")) ? await ctx.storage.getUrl(user.avatar) : undefined,
+            avatarUrl: await resolveAvatarUrl(ctx, user.avatar),
         };
     },
 });
@@ -41,7 +56,7 @@ export const getByEmail = query({
 
         return {
             ...user,
-            avatarUrl: (user.avatar && !user.avatar.startsWith("default-")) ? await ctx.storage.getUrl(user.avatar) : undefined,
+            avatarUrl: await resolveAvatarUrl(ctx, user.avatar),
         };
     },
 });
