@@ -82,6 +82,16 @@ export default defineSchema({
         categoryId: v.string(),
         isActive: v.boolean(),
         variations: v.array(productVariationValidator),
+        combinations: v.optional(v.array(v.object({
+            id: v.union(v.string(), v.number()),
+            options: v.array(v.object({
+                name: v.string(),
+                value: v.string(),
+            })),
+            price: v.number(),
+            sku: v.optional(v.string()),
+            stock: v.optional(v.number()),
+        }))),
         stock: v.number(),
         moq: v.optional(v.number()),
         // Ecwid ribbon/promotion tag

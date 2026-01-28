@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { api } from "./_generated/api";
 
 // List all customers
 export const list = query({
@@ -56,10 +57,15 @@ export const create = mutation({
         isActive: v.boolean(),
     },
     handler: async (ctx, args) => {
-        return await ctx.db.insert("customers", {
+        const customerId = await ctx.db.insert("customers", {
             ...args,
             createdAt: new Date().toISOString(),
         });
+
+        // Trigger Ecwid sync
+        await ctx.scheduler.runAfter(0, api.ecwid.createCustomerInEcwid, { customerId });
+
+        return customerId;
     },
 });
 
@@ -82,6 +88,10 @@ export const update = mutation({
             Object.entries(updates).filter(([_, v]) => v !== undefined)
         );
         await ctx.db.patch(id, cleanUpdates);
+
+        // Trigger Ecwid sync
+        await ctx.scheduler.runAfter(0, api.ecwid.updateCustomerInEcwid, { customerId: id });
+
         return await ctx.db.get(id);
     },
 });

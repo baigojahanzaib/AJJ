@@ -23,7 +23,7 @@ export default function SalesOrders() {
   const router = useRouter();
   const { getOrdersBySalesRep } = useData();
   const { user } = useAuth();
-  
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | 'all'>('all');
 
@@ -33,7 +33,7 @@ export default function SalesOrders() {
 
   const filteredOrders = useMemo(() => {
     return myOrders.filter(order => {
-      const matchesSearch = 
+      const matchesSearch =
         order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
         order.customerName.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus;
@@ -42,7 +42,12 @@ export default function SalesOrders() {
   }, [myOrders, searchQuery, selectedStatus]);
 
   const handleOrderPress = (orderId: string) => {
-    router.push(`/order/${orderId}`);
+    try {
+      console.log('[Orders] Navigating to order:', orderId);
+      router.push(`/order/${orderId}`);
+    } catch (e) {
+      console.error('[Orders] Navigation error:', e);
+    }
   };
 
   return (
@@ -103,7 +108,7 @@ export default function SalesOrders() {
             <Package size={64} color={Colors.light.textTertiary} />
             <Text style={styles.emptyTitle}>No orders found</Text>
             <Text style={styles.emptySubtitle}>
-              {searchQuery || selectedStatus !== 'all' 
+              {searchQuery || selectedStatus !== 'all'
                 ? 'Try adjusting your filters'
                 : 'Start creating orders from the catalog'}
             </Text>

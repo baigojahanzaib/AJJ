@@ -15,6 +15,24 @@ export const [CartProvider, useCart] = createContextHook(() => {
   const [notes, setNotes] = useState('');
 
   const calculateItemPrice = (product: Product, selectedVariations: SelectedVariation[]): number => {
+    // Check for matching combination first
+    if (product.combinations && product.combinations.length > 0) {
+      const match = product.combinations.find(combo => {
+        // Every option in the combination must match a selected variation
+        return combo.options.every(comboOption => {
+          return selectedVariations.some(selected => 
+            selected.optionName.toLowerCase() === comboOption.name.toLowerCase() && 
+            selected.variationName.toLowerCase() === comboOption.value.toLowerCase()
+          );
+        });
+      });
+
+      if (match) {
+        return match.price;
+      }
+    }
+
+    // Fallback to modifiers
     let price = product.basePrice;
     for (const variation of selectedVariations) {
       price += variation.priceModifier;

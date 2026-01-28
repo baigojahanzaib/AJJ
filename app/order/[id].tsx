@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform, Alert } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Image } from 'expo-image';
@@ -16,6 +16,7 @@ import Input from '@/components/Input';
 import Colors from '@/constants/colors';
 import { OrderStatus, OrderItem } from '@/types';
 import { generateAndSharePDF } from '@/lib/pdf-generator';
+import { generateAndShareCSV } from '@/lib/csv-generator';
 
 const statusOptions: { id: OrderStatus; label: string; color: 'default' | 'success' | 'warning' | 'danger' | 'info' }[] = [
   { id: 'pending', label: 'Pending', color: 'warning' },
@@ -146,20 +147,66 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     }
   };
 
-  const handlePrint = async () => {
-    try {
-      await generateAndSharePDF(order);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      setAlertConfig({
-        visible: true,
-        title: 'Error',
-        message: 'Failed to generate PDF.',
-        type: 'error',
-        buttons: [{ text: 'OK', style: 'default' }],
-      });
-    }
+  const handlePrint = () => {
+    setAlertConfig({
+      visible: true,
+      title: 'Export Order',
+      message: 'Choose a format to export this order:',
+      type: 'info',
+      buttons: [
+        {
+          text: 'Export CSV',
+          style: 'default',
+          onPress: () => {
+            // Wait for modal to close before starting export
+            setTimeout(async () => {
+              console.log('Timeout fired, starting CSV export...');
+              try {
+                await generateAndShareCSV(order);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              } catch (error) {
+                console.error('Error generating CSV:', error);
+                setAlertConfig({
+                  visible: true,
+                  title: 'Error',
+                  message: 'Failed to generate CSV.',
+                  type: 'error',
+                  buttons: [{ text: 'OK', style: 'default' }],
+                });
+              }
+            }, 1000);
+          },
+        },
+        {
+          text: 'Export PDF',
+          style: 'default',
+          onPress: () => {
+            // Wait for modal to close before starting export
+            setTimeout(async () => {
+              console.log('Timeout fired, starting PDF export...');
+              try {
+                await generateAndSharePDF(order);
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              } catch (error) {
+                console.error('Error generating PDF:', error);
+                setAlertConfig({
+                  visible: true,
+                  title: 'Error',
+                  message: 'Failed to generate PDF.',
+                  type: 'error',
+                  buttons: [{ text: 'OK', style: 'default' }],
+                });
+              }
+            }, 1000);
+          },
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ],
+    });
+    Haptics.selectionAsync();
   };
 
   const openEditModal = () => {

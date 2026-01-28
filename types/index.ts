@@ -50,6 +50,16 @@ export interface Product {
   categoryId: string;
   isActive: boolean;
   variations: ProductVariation[];
+  combinations?: {
+    id: string | number;
+    options: {
+      name: string;
+      value: string;
+    }[];
+    price: number;
+    sku?: string;
+    stock?: number;
+  }[];
   stock: number;
   createdAt: string;
   moq?: number;

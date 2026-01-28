@@ -109,7 +109,7 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
             }
         } catch (e) {
             console.log('Update error:', e);
-            setError('Update check failed. Continuing with current version.');
+            setError(`Update failed: ${(e as Error).message}`);
             setUpdateState('error');
             animateProgress(1, 300);
             setTimeout(() => fadeOutAndComplete(), 1500);

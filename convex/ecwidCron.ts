@@ -193,6 +193,16 @@ export const checkAndSync = internalAction({
                         categoryEcwidId: prod.categoryIds?.[0],
                         isActive: prod.enabled !== false,
                         variations,
+                        combinations: prod.combinations?.map((c: any) => ({
+                            id: c.id,
+                            options: c.options?.map((o: any) => ({
+                                name: o.name,
+                                value: o.value
+                            })) || [],
+                            price: c.price,
+                            sku: c.sku,
+                            stock: c.quantity
+                        })),
                         stock: prod.quantity || 0,
                         ribbon: prod.ribbon?.text,
                         ribbonColor: prod.ribbon?.color,

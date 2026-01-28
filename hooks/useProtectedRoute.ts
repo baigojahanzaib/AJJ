@@ -10,7 +10,7 @@ export function useProtectedRoute() {
     useEffect(() => {
         if (isLoading) return;
 
-        const inAuthGroup = segments[0] === '(admin)' || segments[0] === '(sales)';
+        const inAuthGroup = segments[0] === '(admin)' || segments[0] === '(sales)' || segments[0] === 'order';
         const inPublicGroup = segments.length === 0 || !inAuthGroup; // Root or any non-protected route
 
         console.log('[AuthGuard] Check:', { isAuthenticated, inAuthGroup, segments });

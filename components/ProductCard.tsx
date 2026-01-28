@@ -4,6 +4,8 @@ import Colors from '@/constants/colors';
 import { Product } from '@/types';
 import Badge from './Badge';
 
+import { useCart } from '@/contexts/CartContext';
+
 interface ProductCardProps {
   product: Product;
   onPress: () => void;
@@ -11,6 +13,12 @@ interface ProductCardProps {
 }
 
 export default function ProductCard({ product, onPress, variant = 'grid' }: ProductCardProps) {
+  const { items } = useCart();
+
+  const cartQuantity = items
+    .filter(item => item.product.id === product.id)
+    .reduce((sum, item) => sum + item.quantity, 0);
+
   const formatPrice = (price: number) => {
     return `R${price.toFixed(2)}`;
   };
@@ -38,6 +46,11 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
           <View style={styles.listFooter}>
             {product.variations.length > 0 && (
               <Badge label={`${product.variations.length} options`} size="sm" />
+            )}
+            {cartQuantity > 0 && (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>{cartQuantity} in cart</Text>
+              </View>
             )}
           </View>
         </View>
@@ -77,6 +90,13 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
             </View>
           )}
         </View>
+
+        {/* Cart Quantity Badge - Bottom Right of Image */}
+        {cartQuantity > 0 && (
+          <View style={styles.gridCartBadge}>
+            <Text style={styles.gridCartBadgeText}>{cartQuantity} in cart</Text>
+          </View>
+        )}
 
       </View>
       <View style={styles.gridContent}>
@@ -212,6 +232,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 4, // Adjusted top margin
+    marginTop: 4,
+  },
+  cartBadge: {
+    backgroundColor: Colors.light.success,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  cartBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  gridCartBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: Colors.light.success,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  gridCartBadgeText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
   },
 });

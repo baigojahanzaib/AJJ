@@ -26,7 +26,7 @@ export default function AdminOrders() {
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | 'all'>('all');
 
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = 
+    const matchesSearch =
       order.orderNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.salesRepName.toLowerCase().includes(searchQuery.toLowerCase());
@@ -39,7 +39,12 @@ export default function AdminOrders() {
   );
 
   const handleOrderPress = (orderId: string) => {
-    router.push(`/order/${orderId}`);
+    try {
+      console.log('[AdminOrders] Navigating to order:', orderId);
+      router.push(`/order/${orderId}`);
+    } catch (e) {
+      console.error('[AdminOrders] Navigation error:', e);
+    }
   };
 
   const handleStatusChange = (orderId: string, newStatus: import('@/types').OrderStatus) => {
@@ -96,10 +101,10 @@ export default function AdminOrders() {
         contentContainerStyle={styles.orderList}
         renderItem={({ item }) => (
           <View style={styles.orderItem}>
-            <OrderCard 
-              order={item} 
-              onPress={() => handleOrderPress(item.id)} 
-              showSalesRep 
+            <OrderCard
+              order={item}
+              onPress={() => handleOrderPress(item.id)}
+              showSalesRep
               onStatusChange={handleStatusChange}
             />
           </View>

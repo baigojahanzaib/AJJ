@@ -19,7 +19,7 @@ export default function ProductDetailPage() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
     const { filteredSortedProducts, getCategoryById } = useData();
-    const { addItem } = useCart();
+    const { addItem, items } = useCart();
 
     const [selectedVariations, setSelectedVariations] = useState<Record<string, string>>({});
     const [quantity, setQuantity] = useState(1);
@@ -27,6 +27,14 @@ export default function ProductDetailPage() {
     const product = useMemo(() => {
         return filteredSortedProducts.find(p => p.id === id) || null;
     }, [filteredSortedProducts, id]);
+
+    // Calculate total quantity of this product in cart
+    const totalInCart = useMemo(() => {
+        if (!product) return 0;
+        return items
+            .filter(item => item.product.id === product.id)
+            .reduce((sum, item) => sum + item.quantity, 0);
+    }, [items, product]);
 
     const { prevProduct, nextProduct } = useMemo(() => {
         if (!product || filteredSortedProducts.length === 0) return { prevProduct: null, nextProduct: null };
@@ -100,7 +108,21 @@ export default function ProductDetailPage() {
         });
         addItem(product, variationsArray, quantity);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        router.back();
+
+        // Removed automatic back navigation - user might want to add more variations
+        // router.back(); 
+
+        // Reset quantity to MOQ ? optional. Let's keep it as is.
+    };
+
+    const getVariationQuantityInCart = (variationId: string, optionId: string) => {
+        if (!product) return 0;
+        return items
+            .filter(item =>
+                item.product.id === product.id &&
+                item.selectedVariations.some(v => v.variationId === variationId && v.optionId === optionId)
+            )
+            .reduce((sum, item) => sum + item.quantity, 0);
     };
 
     const renderVariationSelector = (variation: ProductVariation) => {
@@ -109,44 +131,53 @@ export default function ProductDetailPage() {
             <View key={variation.id} style={styles.variationContainer}>
                 <Text style={styles.variationLabel}>{variation.name}</Text>
                 <View style={styles.optionsContainer}>
-                    {variation.options.map(option => (
-                        <TouchableOpacity
-                            key={option.id}
-                            style={[
-                                styles.optionChip,
-                                selectedOptionId === option.id && styles.optionChipSelected,
-                            ]}
-                            onPress={() => {
-                                setSelectedVariations(prev => ({
-                                    ...prev,
-                                    [variation.id]: option.id,
-                                }));
-                                Haptics.selectionAsync();
-                            }}
-                        >
-                            <Text
+                    {variation.options.map(option => {
+                        const quantityInCart = getVariationQuantityInCart(variation.id, option.id);
+                        return (
+                            <TouchableOpacity
+                                key={option.id}
                                 style={[
-                                    styles.optionText,
-                                    selectedOptionId === option.id && styles.optionTextSelected,
+                                    styles.optionChip,
+                                    selectedOptionId === option.id && styles.optionChipSelected,
+                                    quantityInCart > 0 && styles.optionChipInCart,
                                 ]}
+                                onPress={() => {
+                                    setSelectedVariations(prev => ({
+                                        ...prev,
+                                        [variation.id]: option.id,
+                                    }));
+                                    Haptics.selectionAsync();
+                                }}
                             >
-                                {option.name}
-                            </Text>
-                            {option.priceModifier !== 0 && (
                                 <Text
                                     style={[
-                                        styles.optionPrice,
-                                        selectedOptionId === option.id && styles.optionPriceSelected,
+                                        styles.optionText,
+                                        selectedOptionId === option.id && styles.optionTextSelected,
                                     ]}
                                 >
-                                    {option.priceModifier > 0 ? '+' : ''}R{option.priceModifier.toFixed(2)}
+                                    {option.name}
                                 </Text>
-                            )}
-                            {selectedOptionId === option.id && (
-                                <Check size={14} color={Colors.light.primaryForeground} style={styles.checkIcon} />
-                            )}
-                        </TouchableOpacity>
-                    ))}
+                                {quantityInCart > 0 && (
+                                    <View style={styles.optionBadge}>
+                                        <Text style={styles.optionBadgeText}>{quantityInCart}</Text>
+                                    </View>
+                                )}
+                                {option.priceModifier !== 0 && (
+                                    <Text
+                                        style={[
+                                            styles.optionPrice,
+                                            selectedOptionId === option.id && styles.optionPriceSelected,
+                                        ]}
+                                    >
+                                        {option.priceModifier > 0 ? '+' : ''}R{option.priceModifier.toFixed(2)}
+                                    </Text>
+                                )}
+                                {selectedOptionId === option.id && (
+                                    <Check size={14} color={Colors.light.primaryForeground} style={styles.checkIcon} />
+                                )}
+                            </TouchableOpacity>
+                        );
+                    })}
                 </View>
             </View>
         );
@@ -295,6 +326,9 @@ export default function ProductDetailPage() {
                         <View style={styles.productInfo}>
                             <View style={styles.productHeader}>
                                 <Text style={styles.productName}>{product.name}</Text>
+                                {totalInCart > 0 && (
+                                    <Text style={styles.productCartCount}>{totalInCart} added to cart</Text>
+                                )}
                                 {product.variations.length > 0 && (
                                     <Badge label={`${product.variations.length} options`} size="sm" />
                                 )}
@@ -591,5 +625,27 @@ const styles = StyleSheet.create({
     },
     quantityButtonDisabled: {
         opacity: 0.5,
+    },
+    optionChipInCart: {
+        borderColor: Colors.light.success,
+        borderWidth: 1,
+    },
+    optionBadge: {
+        backgroundColor: Colors.light.success,
+        borderRadius: 10,
+        paddingHorizontal: 6,
+        paddingVertical: 1,
+        marginLeft: 6,
+    },
+    optionBadgeText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: 'bold',
+    },
+    productCartCount: {
+        fontSize: 14,
+        color: Colors.light.success,
+        fontWeight: '600',
+        marginBottom: 4,
     },
 });
