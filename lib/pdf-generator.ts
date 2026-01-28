@@ -11,7 +11,15 @@ const generateOrderHTML = (order: Order) => {
       <head>
         <style>
           @page { size: A4; margin: 20mm; }
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; }
+          * { box-sizing: border-box; }
+          body { 
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; 
+            color: #333; 
+            margin: 0;
+            padding: 20px;
+            width: 100%;
+          }
+          
           .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 15px; }
           .company-name { font-size: 24px; font-weight: bold; color: #333; }
           .invoice-title { font-size: 24px; color: #666; font-weight: 300; text-align: right; }
@@ -28,28 +36,45 @@ const generateOrderHTML = (order: Order) => {
           .address-title { font-weight: bold; margin-bottom: 5px; border-bottom: 1px solid #eee; padding-bottom: 3px; font-size: 14px; }
           .address-content { font-size: 14px; line-height: 1.4; }
 
-          /* Improved Page Break Handling */
-          table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
-          th { text-align: left; padding: 10px 8px; border-bottom: 2px solid #ddd; color: #666; font-size: 14px; }
-          td { padding: 10px 8px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 14px; }
-          
-          tr { 
-            page-break-inside: avoid; 
-            break-inside: avoid;
-            page-break-after: auto; 
+          /* Item List Styling (Div-based for better page breaks) */
+          .item-list-header { 
+            display: flex; 
+            border-bottom: 2px solid #ddd; 
+            padding: 10px 0; 
+            margin-bottom: 10px;
+            font-weight: bold;
+            color: #666;
+            font-size: 14px;
           }
           
-          thead { display: table-header-group; }
-          tfoot { display: table-footer-group; }
+          .item-row { 
+            display: flex; 
+            border-bottom: 1px solid #eee; 
+            padding: 10px 0; 
+            font-size: 14px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+            align-items: flex-start;
+          }
           
-          .amount-col { text-align: right; white-space: nowrap; }
-          .image-col { width: 60px; }
-          .sku-col { width: 100px; }
-          .qty-col { width: 60px; text-align: center; }
+          .col-image { width: 60px; }
+          .col-item { flex: 1; padding-right: 10px; }
+          .col-sku { width: 100px; }
+          .col-qty { width: 60px; text-align: center; }
+          .col-price { width: 100px; text-align: right; }
+          .col-total { width: 100px; text-align: right; }
           
           .product-image { width: 50px; height: 50px; object-fit: cover; border-radius: 4px; background-color: #f0f0f0; }
           
-          .total-section { display: flex; flex-direction: column; align-items: flex-end; page-break-inside: avoid; break-inside: avoid; }
+          .total-section { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: flex-end; 
+            margin-top: 20px;
+            page-break-inside: avoid; 
+            break-inside: avoid; 
+          }
+          
           .total-row { display: flex; justify-content: flex-end; width: 300px; margin-bottom: 10px; }
           .total-label { font-weight: bold; width: 100px; text-align: right; margin-right: 20px; }
           .total-value { width: 120px; text-align: right; }
@@ -93,41 +118,38 @@ const generateOrderHTML = (order: Order) => {
           </div>
         </div>
 
-        <table>
-          <thead>
-            <tr>
-              <th class="image-col">Image</th>
-              <th>Item</th>
-              <th class="sku-col">SKU</th>
-              <th class="qty-col">Qty</th>
-              <th class="amount-col">Price</th>
-              <th class="amount-col">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${order.items.map(item => `
-              <tr style="page-break-inside: avoid; break-inside: avoid;">
-                <td class="image-col">
-                  ${item.productImage ? `<img src="${item.productImage}" class="product-image" alt="" />` : '<div class="product-image"></div>'}
-                </td>
-                <td>
-                  <div style="font-weight: bold;">${item.productName}</div>
-                  ${item.selectedVariations?.length ? `
-                    <div style="font-size: 12px; color: #333; margin-top: 4px;">
-                      ${item.selectedVariations.map(v => `${v.optionName}`).join(' / ')}
-                    </div>
-                  ` : ''}
-                </td>
-                <td class="sku-col">
-                  <div style="font-size: 12px; color: #666;">${item.productSku}</div>
-                </td>
-                <td class="qty-col">${item.quantity}</td>
-                <td class="amount-col">R${item.unitPrice.toFixed(2)}</td>
-                <td class="amount-col">R${item.totalPrice.toFixed(2)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+        <div class="item-list">
+          <div class="item-list-header">
+            <div class="col-image">Image</div>
+            <div class="col-item">Item</div>
+            <div class="col-sku">SKU</div>
+            <div class="col-qty">Qty</div>
+            <div class="col-price">Price</div>
+            <div class="col-total">Total</div>
+          </div>
+          
+          ${order.items.map(item => `
+            <div class="item-row">
+              <div class="col-image">
+                ${item.productImage ? `<img src="${item.productImage}" class="product-image" alt="" />` : '<div class="product-image"></div>'}
+              </div>
+              <div class="col-item">
+                <div style="font-weight: bold;">${item.productName}</div>
+                ${item.selectedVariations?.length ? `
+                  <div style="font-size: 12px; color: #333; margin-top: 4px;">
+                    ${item.selectedVariations.map(v => `${v.optionName}`).join(' / ')}
+                  </div>
+                ` : ''}
+              </div>
+              <div class="col-sku">
+                <div style="font-size: 12px; color: #666;">${item.productSku}</div>
+              </div>
+              <div class="col-qty">${item.quantity}</div>
+              <div class="col-price">R${item.unitPrice.toFixed(2)}</div>
+              <div class="col-total">R${item.totalPrice.toFixed(2)}</div>
+            </div>
+          `).join('')}
+        </div>
 
         <div class="total-section">
           <div class="total-row">
@@ -151,7 +173,7 @@ const generateOrderHTML = (order: Order) => {
         </div>
 
         ${order.notes ? `
-          <div style="margin-top: 30px; background: #f9f9f9; padding: 15px; border-radius: 4px;">
+          <div style="margin-top: 30px; background: #f9f9f9; padding: 15px; border-radius: 4px; page-break-inside: avoid; break-inside: avoid;">
             <div style="font-weight: bold; margin-bottom: 5px;">Notes:</div>
             <div>${order.notes}</div>
           </div>
@@ -166,24 +188,20 @@ const generateOrderHTML = (order: Order) => {
 };
 
 export const generateAndSharePDF = async (order: Order) => {
-  console.log('Starting PDF generation for order:', order.orderNumber);
   try {
     const html = generateOrderHTML(order);
-    console.log('Order HTML generated');
-
     const { uri } = await Print.printToFileAsync({
       html,
       base64: false,
+      width: 595,
+      height: 842,
     });
-    console.log('PDF printed to:', uri);
 
-    console.log('Attempting to share PDF...');
     await Sharing.shareAsync(uri, {
       UTI: '.pdf',
       mimeType: 'application/pdf',
       dialogTitle: `Order #${order.orderNumber}`,
     });
-    console.log('PDF share completed');
   } catch (error) {
     console.error('Error generating PDF:', error);
     throw error;
