@@ -497,18 +497,18 @@ export const fullSync = action({
                     if (prod.options && prod.options.length > 0) {
                         for (const option of prod.options) {
                             const convexVariation = {
-                                id: `opt-${option.name.toLowerCase().replace(/\s+/g, '-')}`,
-                                name: option.name,
+                                id: `opt-${option.name.trim().toLowerCase().replace(/\s+/g, '-')}`,
+                                name: option.name?.trim(),
                                 options: (option.choices || []).map((choice: any, index: number) => {
                                     let priceModifier = choice.priceModifier || 0;
                                     if (choice.priceModifierType === "PERCENT") {
                                         priceModifier = (prod.price * priceModifier) / 100;
                                     }
                                     return {
-                                        id: `${option.name.toLowerCase().replace(/\s+/g, '-')}-${index}`,
-                                        name: choice.text,
+                                        id: `${option.name.trim().toLowerCase().replace(/\s+/g, '-')}-${index}`,
+                                        name: choice.text?.trim(),
                                         priceModifier,
-                                        sku: prod.sku ? `${prod.sku}-${choice.text}` : `SKU-${index}`,
+                                        sku: prod.sku ? `${prod.sku}-${choice.text?.trim()}` : `SKU-${index}`,
                                         stock: prod.quantity || 0,
                                         image: undefined,
                                     };
@@ -549,8 +549,8 @@ export const fullSync = action({
                         combinations: prod.combinations?.map((c: any) => ({
                             id: c.id,
                             options: c.options?.map((o: any) => ({
-                                name: o.name,
-                                value: o.value
+                                name: o.name?.trim(),
+                                value: o.value?.trim()
                             })) || [],
                             price: c.price,
                             sku: c.sku,
@@ -682,6 +682,76 @@ export const testConnection = action({
                 success: false,
                 message: `Connection error: ${error instanceof Error ? error.message : 'Unknown error'}`,
             };
+        }
+    },
+});
+
+/**
+ * Sync customers from Ecwid (Manual trigger)
+ */
+export const syncCustomers = action({
+    args: {},
+    handler: async (ctx) => {
+        // Get settings
+        const settings = await ctx.runQuery(internal.ecwid.getSettingsInternal);
+        if (!settings || !settings.storeId || !settings.accessToken) {
+            throw new Error("Ecwid is not configured. Please add Store ID and Access Token.");
+        }
+
+        console.log("Starting manual customer sync...");
+
+        const ECWID_API_BASE = "https://app.ecwid.com/api/v3";
+        let customerCount = 0;
+        let offset = 0;
+        const limit = 100;
+
+        try {
+            while (true) {
+                const custUrl = `${ECWID_API_BASE}/${settings.storeId}/customers?offset=${offset}&limit=${limit}`;
+                const custResponse = await fetch(custUrl, {
+                    headers: {
+                        "Authorization": `Bearer ${settings.accessToken}`,
+                        "Content-Type": "application/json",
+                    },
+                });
+
+                if (!custResponse.ok) {
+                    const errorText = await custResponse.text();
+                    throw new Error(`Ecwid API error (customers): ${custResponse.status} - ${errorText}`);
+                }
+
+                const custData = await custResponse.json();
+
+                for (const cust of custData.items) {
+                    if (!cust.email) {
+                        continue;
+                    }
+
+                    await ctx.runMutation(internal.ecwid.upsertCustomer, {
+                        ecwidId: cust.id,
+                        email: cust.email,
+                        name: cust.name || cust.billingPerson?.name || "Unknown Name",
+                        phone: cust.billingPerson?.phone || "",
+                        address: cust.billingPerson?.street || "",
+                        city: cust.billingPerson?.city,
+                        countryCode: cust.billingPerson?.countryCode,
+                        postalCode: cust.billingPerson?.postalCode,
+                        company: cust.billingPerson?.company,
+                    });
+                    customerCount++;
+                }
+
+                if (offset + custData.count >= custData.total) break;
+                offset += limit;
+            }
+
+            console.log(`Successfully synced ${customerCount} customers.`);
+            return { success: true, count: customerCount };
+
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Unknown error";
+            console.error("Customer sync failed:", message);
+            throw error;
         }
     },
 });
@@ -846,11 +916,19 @@ export const syncOrderToEcwid = action({
 export const listPendingOrders = internalQuery({
     args: {},
     handler: async (ctx) => {
-        // We can't filter by missing field easily in standard query without index, 
-        // but for manual sync, fetching all and filtering in memory is acceptable for reasonable dataset.
-        // Or we can use .filter() if available in Convex query builder (it is).
-        const orders = await ctx.db.query("orders").collect();
-        return orders.filter((o: any) => !o.ecwidOrderId && o.status !== 'cancelled');
+        const statuses = ["pending", "confirmed", "processing", "shipped", "delivered"];
+        const results = await Promise.all(
+            statuses.map(status =>
+                ctx.db
+                    .query("orders")
+                    .withIndex("by_status", (q) => q.eq("status", status as any))
+                    .collect()
+            )
+        );
+
+        // Flatten and filter for those not yet synced
+        const allOrders = results.flat();
+        return allOrders.filter((o: any) => !o.ecwidOrderId);
     }
 });
 
@@ -1006,7 +1084,17 @@ export const updateOrderEcwidId = internalMutation({
 export const backfillOrders = internalMutation({
     args: {},
     handler: async (ctx) => {
-        const orders = await ctx.db.query("orders").collect();
+        const statuses = ["pending", "confirmed", "processing", "shipped", "delivered"];
+        const results = await Promise.all(
+            statuses.map(status =>
+                ctx.db
+                    .query("orders")
+                    .withIndex("by_status", (q) => q.eq("status", status as any))
+                    .collect()
+            )
+        );
+        const orders = results.flat();
+
         let count = 0;
         for (const order of orders) {
             if (!order.ecwidOrderId) {
@@ -1140,116 +1228,41 @@ export const getCustomerInternal = internalQuery({
     },
 });
 
-/**
- * Internal mutation to upsert an order from Ecwid
- */
-export const upsertOrderFromEcwid = internalMutation({
-    args: {
-        ecwidOrderId: v.union(v.string(), v.number()),
-        orderNumber: v.string(),
-        total: v.number(),
-        subtotal: v.number(),
-        tax: v.number(),
-        status: v.string(),
-        customerEmail: v.string(),
-        customerName: v.string(),
-        customerPhone: v.string(),
-        customerAddress: v.string(),
-        items: v.array(v.any()), // Simplified item structure for import
-        createdAt: v.string(),
-    },
-    handler: async (ctx, args) => {
-        const existing = await ctx.db
-            .query("orders")
-            .withIndex("by_ecwidOrderId", (q) => q.eq("ecwidOrderId", args.ecwidOrderId))
-            .first();
 
-        if (existing) {
-            // Optional: Update status if changed
-            return existing._id;
-        }
 
-        // Map Ecwid status to Convex status
-        let status: any = "pending";
-        if (args.status === "PAID") status = "confirmed";
-        if (args.status === "SHIPPED") status = "shipped";
-        if (args.status === "DELIVERED") status = "delivered";
-        if (args.status === "CANCELED") status = "cancelled";
 
-        return await ctx.db.insert("orders", {
-            orderNumber: args.orderNumber.toString(),
-            salesRepId: "ecwid_import", // Default system user
-            salesRepName: "Ecwid Import",
-            customerName: args.customerName,
-            customerPhone: args.customerPhone,
-            customerEmail: args.customerEmail,
-            customerAddress: args.customerAddress,
-            items: args.items,
-            subtotal: args.subtotal,
-            tax: args.tax,
-            discount: 0,
-            total: args.total,
-            status,
-            notes: "Imported from Ecwid",
-            createdAt: args.createdAt,
-            updatedAt: new Date().toISOString(),
-            ecwidOrderId: args.ecwidOrderId,
-        });
-    },
-});
 
 /**
- * Fetch orders from Ecwid
+ * Perform full manual sync (Customers, Products, Categories, Orders IN & OUT)
  */
-export const syncOrdersFromEcwid = action({
+export const performManualSync = action({
     args: {},
     handler: async (ctx) => {
-        const settings = await ctx.runQuery(internal.ecwid.getSettingsInternal);
-        if (!settings || !settings.storeId || !settings.accessToken) return;
-
-        const limit = 50;
-        const url = `https://app.ecwid.com/api/v3/${settings.storeId}/orders?limit=${limit}`;
+        console.log("Starting Manual Sync...");
 
         try {
-            const response = await fetch(url, {
-                headers: {
-                    "Authorization": `Bearer ${settings.accessToken}`,
-                    "Content-Type": "application/json",
-                },
-            });
-
-            if (!response.ok) return;
-
-            const data = await response.json();
-
-            for (const order of data.items) {
-                await ctx.runMutation(internal.ecwid.upsertOrderFromEcwid, {
-                    ecwidOrderId: order.id,
-                    orderNumber: order.id, // Use Ecwid ID as order number or prefix
-                    total: order.total,
-                    subtotal: order.subtotal,
-                    tax: order.tax || 0,
-                    status: order.paymentStatus === "PAID" ? "PAID" : order.fulfillmentStatus,
-                    customerEmail: order.email,
-                    customerName: order.billingPerson?.name || "Unknown",
-                    customerPhone: order.billingPerson?.phone || "",
-                    customerAddress: order.billingPerson?.street || "",
-                    items: order.items.map((item: any) => ({
-                        id: item.id?.toString() || Math.random().toString(),
-                        productId: item.productId?.toString() || "",
-                        productName: item.name,
-                        productSku: item.sku || "",
-                        productImage: item.imageUrl || "",
-                        selectedVariations: [], // Simplify for import
-                        quantity: item.quantity,
-                        unitPrice: item.price,
-                        totalPrice: item.price * item.quantity,
-                    })),
-                    createdAt: order.createDate,
-                });
-            }
+            // 1. Pull Customers, Categories, Products
+            console.log("Pulling Customers, Categories, Products...");
+            await ctx.runAction(api.ecwid.fullSync);
+            console.log("Full sync finished.");
         } catch (e) {
-            console.error("Failed to sync orders from Ecwid", e);
+            console.error("Full Sync Failed:", e);
         }
+
+
+
+        try {
+            // 3. Push Pending Orders (Backfill)
+            console.log("Pushing Pending Orders to Ecwid...");
+            await ctx.runAction(api.ecwid.syncPendingOrders);
+            console.log("Pending push finished.");
+        } catch (e) {
+            console.error("Pending Push Failed:", e);
+        }
+
+        console.log("Manual Sync Completed (check logs for partial failures).");
+        return "Sync Process Finished";
     }
 });
+
+

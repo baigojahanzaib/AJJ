@@ -2,19 +2,22 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 
-// List all customers
+// List all customers (Paginated)
 export const list = query({
-    args: {},
-    handler: async (ctx) => {
-        return await ctx.db.query("customers").collect();
+    args: { limit: v.optional(v.number()) },
+    handler: async (ctx, args) => {
+        const limit = args.limit ?? 200;
+        return await ctx.db.query("customers").take(limit);
     },
 });
 
-// List active customers only
+// List active customers only (Paginated)
 export const listActive = query({
-    args: {},
-    handler: async (ctx) => {
-        const customers = await ctx.db.query("customers").collect();
+    args: { limit: v.optional(v.number()) },
+    handler: async (ctx, args) => {
+        const limit = args.limit ?? 200;
+        // Naive pagination for filtered list
+        const customers = await ctx.db.query("customers").take(limit);
         return customers.filter((c) => c.isActive);
     },
 });
@@ -35,11 +38,10 @@ export const search = query({
         const customers = await ctx.db.query("customers").collect();
         return customers.filter(
             (c) =>
-                c.isActive &&
-                (c.name.toLowerCase().includes(searchTerm) ||
-                    c.company?.toLowerCase().includes(searchTerm) ||
-                    c.phone.includes(searchTerm) ||
-                    c.email.toLowerCase().includes(searchTerm))
+                c.name.toLowerCase().includes(searchTerm) ||
+                c.phone.includes(searchTerm) ||
+                (c.email && c.email.toLowerCase().includes(searchTerm)) ||
+                (c.company && c.company.toLowerCase().includes(searchTerm))
         );
     },
 });
@@ -49,7 +51,7 @@ export const create = mutation({
     args: {
         name: v.string(),
         phone: v.string(),
-        email: v.string(),
+        email: v.optional(v.string()),
         address: v.string(),
         latitude: v.optional(v.number()),
         longitude: v.optional(v.number()),
@@ -58,18 +60,25 @@ export const create = mutation({
     },
     handler: async (ctx, args) => {
         const customerId = await ctx.db.insert("customers", {
-            ...args,
+            name: args.name,
+            phone: args.phone,
+            email: args.email ?? "", // Fallback to empty string if undefined, assuming schema requires string
+            address: args.address,
+            latitude: args.latitude,
+            longitude: args.longitude,
+            company: args.company,
+            isActive: args.isActive,
             createdAt: new Date().toISOString(),
         });
 
-        // Trigger Ecwid sync
-        await ctx.scheduler.runAfter(0, api.ecwid.createCustomerInEcwid, { customerId });
+        // Trigger Ecwid sync if configured (Push to Ecwid)
+        // await ctx.scheduler.runAfter(0, api.ecwid.createCustomerInEcwid, { customerId });
 
         return customerId;
     },
 });
 
-// Update customer
+// Update a customer
 export const update = mutation({
     args: {
         id: v.id("customers"),
@@ -84,22 +93,17 @@ export const update = mutation({
     },
     handler: async (ctx, args) => {
         const { id, ...updates } = args;
-        const cleanUpdates = Object.fromEntries(
-            Object.entries(updates).filter(([_, v]) => v !== undefined)
-        );
-        await ctx.db.patch(id, cleanUpdates);
+        await ctx.db.patch(id, updates);
 
-        // Trigger Ecwid sync
-        await ctx.scheduler.runAfter(0, api.ecwid.updateCustomerInEcwid, { customerId: id });
-
-        return await ctx.db.get(id);
+        // Trigger Ecwid sync if configured (Push updates to Ecwid)
+        // await ctx.scheduler.runAfter(0, api.ecwid.updateCustomerInEcwid, { customerId: id });
     },
 });
 
-// Delete customer (soft delete)
+// Delete a customer
 export const remove = mutation({
     args: { id: v.id("customers") },
     handler: async (ctx, args) => {
-        await ctx.db.patch(args.id, { isActive: false });
+        await ctx.db.delete(args.id);
     },
 });

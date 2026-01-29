@@ -80,17 +80,46 @@ export default function ProductDetailPage() {
         }
     }, [effectiveMoq]);
 
-    const calculatePrice = (): number => {
+    const getPriceForSelections = (selections: Record<string, string>): number => {
         if (!product) return 0;
+
+        // 1. Check for Combinations
+        if (product.combinations && product.combinations.length > 0) {
+            // console.log('[ProductDetail] Checking combinations:', product.combinations.length);
+            const matchingComb = product.combinations.find(c => {
+                const isMatch = c.options.every(opt => {
+                    const variation = product.variations.find(v => v.name.toLowerCase() === opt.name.toLowerCase());
+                    if (!variation) return false;
+
+                    const selectedOpId = selections[variation.id];
+                    const selectedOp = variation.options.find(o => o.id === selectedOpId);
+
+                    // console.log(`[ProductDetail] Compare: ${selectedOp?.name} vs ${opt.value}`);
+                    return selectedOp?.name.toLowerCase() === opt.value.toLowerCase();
+                });
+                return isMatch;
+            });
+
+            if (matchingComb) {
+                // console.log('[ProductDetail] Found match:', matchingComb.price);
+                return matchingComb.price;
+            }
+        }
+
+        // 2. Fallback to modifiers
         let price = product.basePrice;
         product.variations.forEach(variation => {
-            const selectedOptionId = selectedVariations[variation.id];
+            const selectedOptionId = selections[variation.id];
             const option = variation.options.find(opt => opt.id === selectedOptionId);
             if (option) {
                 price += option.priceModifier;
             }
         });
         return price;
+    };
+
+    const calculatePrice = (): number => {
+        return getPriceForSelections(selectedVariations);
     };
 
     const handleAddToCart = () => {
@@ -162,16 +191,46 @@ export default function ProductDetailPage() {
                                         <Text style={styles.optionBadgeText}>{quantityInCart}</Text>
                                     </View>
                                 )}
-                                {option.priceModifier !== 0 && (
-                                    <Text
-                                        style={[
-                                            styles.optionPrice,
-                                            selectedOptionId === option.id && styles.optionPriceSelected,
-                                        ]}
-                                    >
-                                        {option.priceModifier > 0 ? '+' : ''}R{option.priceModifier.toFixed(2)}
-                                    </Text>
-                                )}
+                                {/* Dynamic Price Difference */}
+                                {(() => {
+                                    const selections = { ...selectedVariations, [variation.id]: option.id };
+                                    const optionPrice = getPriceForSelections(selections);
+
+                                    // Calculate diff against the CURRENTLY selected price, 
+                                    // OR against the BASE product price?
+                                    // Usually users want to know "How much extra is this option?"
+                                    // If we use current selections as base, the tags change as you click.
+                                    // Let's try: Diff vs (Current Price if we essentially UNSELECTED this variation? No that's impossible).
+
+                                    // Let's stick to: Price Diff vs Current Total.
+                                    // If I select this, the total becomes X. Current is Y. Diff = X - Y.
+                                    const currentPrice = getPriceForSelections(selectedVariations);
+                                    const diff = optionPrice - currentPrice;
+
+                                    // If this is the SELECTED option, diff is 0.
+                                    // Users might want to know the "value" of the selected option.
+                                    // But for combinations, "value" is hard. 
+                                    // Let's just hide the tag if it's selected or diff is 0.
+
+                                    if (selectedOptionId === option.id) {
+                                        // Option is selected. Maybe show nothing?
+                                        // The checkmark is there.
+                                        return null;
+                                    }
+
+                                    if (Math.abs(diff) < 0.01) return null;
+
+                                    return (
+                                        <Text
+                                            style={[
+                                                styles.optionPrice,
+                                                selectedOptionId === option.id && styles.optionPriceSelected,
+                                            ]}
+                                        >
+                                            {diff > 0 ? '+' : ''}R{diff.toFixed(2)}
+                                        </Text>
+                                    );
+                                })()}
                                 {selectedOptionId === option.id && (
                                     <Check size={14} color={Colors.light.primaryForeground} style={styles.checkIcon} />
                                 )}

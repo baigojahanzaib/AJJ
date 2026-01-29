@@ -100,6 +100,7 @@ export default defineSchema({
         createdAt: v.string(),
         // Ecwid integration
         ecwidId: v.optional(v.number()),
+        updatedAt: v.optional(v.string()),
     })
         .index("by_category", ["categoryId"])
         .index("by_sku", ["sku"])

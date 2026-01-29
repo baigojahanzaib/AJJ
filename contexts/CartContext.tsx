@@ -20,9 +20,9 @@ export const [CartProvider, useCart] = createContextHook(() => {
       const match = product.combinations.find(combo => {
         // Every option in the combination must match a selected variation
         return combo.options.every(comboOption => {
-          return selectedVariations.some(selected => 
-            selected.optionName.toLowerCase() === comboOption.name.toLowerCase() && 
-            selected.variationName.toLowerCase() === comboOption.value.toLowerCase()
+          return selectedVariations.some(selected =>
+            selected.variationName.trim().toLowerCase() === comboOption.name.trim().toLowerCase() &&
+            selected.optionName.trim().toLowerCase() === comboOption.value.trim().toLowerCase()
           );
         });
       });

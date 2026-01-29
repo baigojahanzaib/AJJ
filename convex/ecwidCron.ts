@@ -160,18 +160,18 @@ export const checkAndSync = internalAction({
                     if (prod.options && prod.options.length > 0) {
                         for (const option of prod.options) {
                             const convexVariation = {
-                                id: `opt-${option.name.toLowerCase().replace(/\s+/g, '-')}`,
-                                name: option.name,
+                                id: `opt-${option.name.trim().toLowerCase().replace(/\s+/g, '-')}`,
+                                name: option.name?.trim(),
                                 options: (option.choices || []).map((choice: any, index: number) => {
                                     let priceModifier = choice.priceModifier || 0;
                                     if (choice.priceModifierType === "PERCENT") {
                                         priceModifier = (prod.price * priceModifier) / 100;
                                     }
                                     return {
-                                        id: `${option.name.toLowerCase().replace(/\s+/g, '-')}-${index}`,
-                                        name: choice.text,
+                                        id: `${option.name.trim().toLowerCase().replace(/\s+/g, '-')}-${index}`,
+                                        name: choice.text?.trim(),
                                         priceModifier,
-                                        sku: prod.sku ? `${prod.sku}-${choice.text}` : `SKU-${index}`,
+                                        sku: prod.sku ? `${prod.sku}-${choice.text?.trim()}` : `SKU-${index}`,
                                         stock: prod.quantity || 0,
                                         image: undefined,
                                     };
@@ -196,8 +196,8 @@ export const checkAndSync = internalAction({
                         combinations: prod.combinations?.map((c: any) => ({
                             id: c.id,
                             options: c.options?.map((o: any) => ({
-                                name: o.name,
-                                value: o.value
+                                name: o.name?.trim(),
+                                value: o.value?.trim()
                             })) || [],
                             price: c.price,
                             sku: c.sku,
