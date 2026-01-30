@@ -151,11 +151,6 @@ export const create = mutation({
             updatedAt: now,
         });
 
-        // Trigger Ecwid sync
-        await ctx.scheduler.runAfter(0, api.ecwid.syncOrderToEcwid, {
-            orderId,
-        });
-
         return orderId;
     },
 });
@@ -177,12 +172,6 @@ export const updateStatus = mutation({
         await ctx.db.patch(args.id, {
             status: args.status,
             updatedAt: new Date().toISOString(),
-        });
-
-        // Trigger Ecwid status sync
-        await ctx.scheduler.runAfter(0, api.ecwid.syncOrderStatusToEcwid, {
-            orderId: args.id,
-            status: args.status,
         });
 
         return await ctx.db.get(args.id);
@@ -247,14 +236,6 @@ export const update = mutation({
             previousVersion: currentOrderData,
             editLog: [...(currentOrder.editLog || []), newEditLog],
         });
-
-        // Trigger Ecwid sync if status changed
-        if (updates.status) {
-            await ctx.scheduler.runAfter(0, api.ecwid.syncOrderStatusToEcwid, {
-                orderId: id,
-                status: updates.status,
-            });
-        }
 
         return await ctx.db.get(id);
     },

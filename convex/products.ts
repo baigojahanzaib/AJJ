@@ -3,18 +3,13 @@ import { v } from "convex/values";
 
 // List all active products (Paginated)
 export const list = query({
-    args: { limit: v.optional(v.number()), cursor: v.optional(v.string()) },
+    args: { cursor: v.optional(v.string()), limit: v.optional(v.number()) },
     handler: async (ctx, args) => {
         const limit = args.limit ?? 200;
-        let q = ctx.db.query("products");
-        // Simple offset pagination isn't supported efficiently.
-        // We will use standard "take" for now. 
-        // Real cursor-based pagination needs `pagination(opts)`. 
-        // But the user just wants to load all. 
-        // Let's use `paginate()` helper or return a slice?
-        // Convex `paginate` is for usePaginatedQuery. 
-        // Let's just user simple `take` effectively.
-        return await q.take(limit);
+        return await ctx.db
+            .query("products")
+            .withIndex("by_isActive", (q) => q.eq("isActive", true))
+            .paginate({ cursor: args.cursor ?? null, numItems: limit });
     },
 });
 

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { StyleSheet, Text, View, FlatList, TouchableOpacity, Modal, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowUpDown, Check, Grid, List } from 'lucide-react-native';
+import { ArrowUpDown, Check, Grid, List, RefreshCw } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import SearchBar from '@/components/SearchBar';
@@ -21,7 +21,9 @@ export default function SalesCatalog() {
     activeFilter,
     setActiveFilter,
     sortBy,
-    setSortBy
+    setSortBy,
+    loadCachedDataAndSync,
+    isSyncing
   } = useData();
   const { user } = useAuth();
 
@@ -79,6 +81,13 @@ export default function SalesCatalog() {
           <Text style={styles.title}>Product Catalog</Text>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.viewToggle}
+            onPress={loadCachedDataAndSync}
+            disabled={isSyncing}
+          >
+            <RefreshCw size={18} color={isSyncing ? Colors.light.textTertiary : Colors.light.primary} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.viewToggle, viewMode === 'grid' && styles.viewToggleActive]}
             onPress={() => setViewMode('grid')}

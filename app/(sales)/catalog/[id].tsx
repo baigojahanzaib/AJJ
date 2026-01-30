@@ -88,21 +88,25 @@ export default function ProductDetailPage() {
             // console.log('[ProductDetail] Checking combinations:', product.combinations.length);
             const matchingComb = product.combinations.find(c => {
                 const isMatch = c.options.every(opt => {
-                    const variation = product.variations.find(v => v.name.toLowerCase() === opt.name.toLowerCase());
+                    const optName = opt.name.trim().toLowerCase();
+                    const optValue = opt.value.trim().toLowerCase();
+
+                    const variation = product.variations.find(v => v.name.trim().toLowerCase() === optName);
                     if (!variation) return false;
 
                     const selectedOpId = selections[variation.id];
                     const selectedOp = variation.options.find(o => o.id === selectedOpId);
 
-                    // console.log(`[ProductDetail] Compare: ${selectedOp?.name} vs ${opt.value}`);
-                    return selectedOp?.name.toLowerCase() === opt.value.toLowerCase();
+                    return selectedOp?.name.trim().toLowerCase() === optValue;
                 });
                 return isMatch;
             });
 
             if (matchingComb) {
-                // console.log('[ProductDetail] Found match:', matchingComb.price);
+                // console.log(`[ProductDetail] Matched combination for ${product.name}: R${matchingComb.price}`);
                 return matchingComb.price;
+            } else if (product.combinations && product.combinations.length > 0) {
+                // console.log(`[ProductDetail] No combination match for ${product.name} with selections:`, selections);
             }
         }
 
@@ -384,14 +388,58 @@ export default function ProductDetailPage() {
 
                         <View style={styles.productInfo}>
                             <View style={styles.productHeader}>
-                                <Text style={styles.productName}>{product.name}</Text>
+                                <View style={styles.titleRow}>
+                                    <Text style={styles.productName}>{product.name}</Text>
+                                    <View style={styles.priceContainer}>
+                                        <Text style={styles.productPrice}>
+                                            R{calculatePrice().toFixed(2)}
+                                        </Text>
+                                        {(() => {
+                                            const range = (() => {
+                                                if (product.combinations && product.combinations.length > 0) {
+                                                    const prices = product.combinations.map(c => c.price).filter(p => p > 0);
+                                                    if (prices.length > 0) {
+                                                        const min = Math.min(...prices);
+                                                        const max = Math.max(...prices);
+                                                        return { min, max, hasRange: max > min };
+                                                    }
+                                                }
+
+                                                let min = product.basePrice;
+                                                let max = product.basePrice;
+
+                                                if (product.variations.length > 0) {
+                                                    product.variations.forEach(v => {
+                                                        const modifiers = v.options.map(o => o.priceModifier);
+                                                        const minMod = Math.min(...modifiers);
+                                                        const maxMod = Math.max(...modifiers);
+                                                        min += minMod;
+                                                        max += maxMod;
+                                                    });
+                                                }
+                                                return { min, max, hasRange: max > min };
+                                            })();
+
+                                            if (range.hasRange) {
+                                                return (
+                                                    <Text style={styles.rangeText}>
+                                                        Range: R{range.min.toFixed(2)} - R{range.max.toFixed(2)}
+                                                    </Text>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </View>
+                                </View>
                                 {totalInCart > 0 && (
                                     <Text style={styles.productCartCount}>{totalInCart} added to cart</Text>
                                 )}
-                                {product.variations.length > 0 && (
-                                    <Badge label={`${product.variations.length} options`} size="sm" />
-                                )}
-                                <Text style={styles.productSku}>{product.sku}</Text>
+                                <View style={styles.badgeRow}>
+                                    {product.variations.length > 0 && (
+                                        <Badge label={`${product.variations.length} options`} size="sm" />
+                                    )}
+                                    <Text style={styles.productSku}>{product.sku}</Text>
+                                </View>
                                 <Text style={styles.categoryName}>
                                     {getCategoryById(product.categoryId)?.name || 'Uncategorized'}
                                 </Text>
@@ -465,7 +513,7 @@ export default function ProductDetailPage() {
                     </View>
                 </SafeAreaView>
             </Animated.View>
-        </GestureDetector>
+        </GestureDetector >
     );
 }
 
@@ -545,6 +593,32 @@ const styles = StyleSheet.create({
         fontSize: 22,
         fontWeight: '700' as const,
         color: Colors.light.text,
+        flex: 1,
+    },
+    titleRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: 12,
+        marginBottom: 8,
+    },
+    priceContainer: {
+        alignItems: 'flex-end',
+    },
+    productPrice: {
+        fontSize: 22,
+        fontWeight: '700' as const,
+        color: Colors.light.primary,
+    },
+    rangeText: {
+        fontSize: 12,
+        color: Colors.light.textTertiary,
+        marginTop: 2,
+    },
+    badgeRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
         marginBottom: 6,
     },
     productSku: {

@@ -32,6 +32,7 @@ function mapProduct(doc: any): Product {
     ribbon: doc.ribbon,
     ribbonColor: doc.ribbonColor,
     combinations: doc.combinations,
+    ecwidId: doc.ecwidId,
   };
 }
 
@@ -44,6 +45,7 @@ function mapCategory(doc: any): Category {
     parentId: doc.parentId,
     isActive: doc.isActive,
     createdAt: doc.createdAt,
+    ecwidId: doc.ecwidId,
   };
 }
 
@@ -70,6 +72,7 @@ function mapOrder(doc: any): Order {
     updatedAt: doc.updatedAt,
     previousVersion: doc.previousVersion,
     editLog: doc.editLog,
+    ecwidOrderId: doc.ecwidOrderId,
   };
 }
 
@@ -99,6 +102,7 @@ function mapCustomer(doc: any): Customer {
     company: doc.company,
     isActive: doc.isActive,
     createdAt: doc.createdAt,
+    ecwidId: doc.ecwidId,
   };
 }
 
@@ -160,6 +164,10 @@ export const [DataProvider, useData] = createContextHook(() => {
   const createCustomerMutation = useMutation(api.customers.create);
   const updateCustomerMutation = useMutation(api.customers.update);
 
+  const { useAction } = require("convex/react");
+  const pushOrderAction = useAction(api.ecwid.syncOrderToEcwid);
+  const pushOrderStatusAction = useAction(api.ecwid.syncOrderStatusToEcwid);
+
   // Use the Convex client directly for manual fetches
   const { useConvex } = require("convex/react");
   const convex = useConvex();
@@ -214,43 +222,60 @@ export const [DataProvider, useData] = createContextHook(() => {
       // but we need ALL pages. So we loop.
 
       let allProducts = [...currentCache];
-      // Create a map for faster updates
       const productMap = new Map(allProducts.map(p => [p.id, p]));
 
-      // We will fetch ALL products in batches of 200 using the `sync` query (which effectively lists all for now)
-      // Ideally we pass a cursor.
-      // Since my `sync` query is simple `take(200)`, it doesn't support deep pagination yet.
-      // I should have added `cursor`. 
-      // Let's rely on standard list for now, but call it manually.
+      // 1. Paginated Sync Products
+      let productCursor: string | null = null;
+      let productDone = false;
+      let syncCount = 0;
 
-      // Re-fetching robust list (simulating sync for now to fix the error 100%)
-      const latestProducts = await convex.query(api.products.list, { limit: 1000 }); // Try 1000? 
-      // If 1000 is too big? 
-      // Use batching logic:
-      // Since I can't easily paginate in this turn without schema changes for cursors,
-      // and user claims "thousands", 1000 might fit in 16MB nicely (10KB per product -> 10MB).
-      // Let's try 500.
+      while (!productDone && syncCount < 20) { // Safety limit of 20 pages (4000 products)
+        const result = await convex.query(api.products.list, {
+          cursor: productCursor || undefined,
+          limit: 200
+        });
 
-      if (latestProducts) {
-        const mapped = latestProducts.map(mapProduct);
-        mapped.forEach(p => productMap.set(p.id, p));
-
-        const merged = Array.from(productMap.values());
-        setCachedProducts(merged);
-        saveProducts(merged);
-        console.log(`[Data] Sync complete. Total products: ${merged.length}`);
+        if (result && result.page) {
+          result.page.map(mapProduct).forEach(p => productMap.set(p.id, p));
+          productCursor = result.continueCursor;
+          productDone = result.isDone;
+          syncCount++;
+        } else {
+          productDone = true;
+        }
       }
 
-      // 2. Sync Customers
+      const merged = Array.from(productMap.values());
+      setCachedProducts(merged);
+      saveProducts(merged);
+      console.log(`[Data] Sync complete. Total products: ${merged.length} (${syncCount} pages)`);
+
+      // 2. Paginated Sync Customers
       let custMap = new Map(currentCustCache.map(c => [c.id, c]));
-      const latestCust = await convex.query(api.customers.list, { limit: 1000 });
-      if (latestCust) {
-        latestCust.map(mapCustomer).forEach(c => custMap.set(c.id, c));
-        const mergedCust = Array.from(custMap.values());
-        setCachedCustomers(mergedCust);
-        saveCustomers(mergedCust);
-        console.log(`[Data] Customer Sync complete. Total: ${mergedCust.length}`);
+      let custCursor: string | null = null;
+      let custDone = false;
+      let custSyncCount = 0;
+
+      while (!custDone && custSyncCount < 20) {
+        const result = await convex.query(api.customers.list, {
+          cursor: custCursor || undefined,
+          limit: 200
+        });
+
+        if (result && result.page) {
+          result.page.map(mapCustomer).forEach(c => custMap.set(c.id, c));
+          custCursor = result.continueCursor;
+          custDone = result.isDone;
+          custSyncCount++;
+        } else {
+          custDone = true;
+        }
       }
+
+      const mergedCust = Array.from(custMap.values());
+      setCachedCustomers(mergedCust);
+      saveCustomers(mergedCust);
+      console.log(`[Data] Customer Sync complete. Total: ${mergedCust.length} (${custSyncCount} pages)`);
     } catch (err) {
       console.error("Sync failed:", err);
     } finally {
@@ -495,6 +520,31 @@ export const [DataProvider, useData] = createContextHook(() => {
     console.log('[Data] Order edit undone:', id);
   }, [undoOrderEditMutation, isOfflineMode]);
 
+  const syncOrderToEcwid = useCallback(async (id: string) => {
+    if (isOfflineMode) {
+      showToast('Cannot sync while offline', 'error');
+      return;
+    }
+    try {
+      showToast('Syncing to Ecwid...', 'info');
+      await pushOrderAction({ orderId: id as Id<"orders"> });
+      showToast('Successfully synced to Ecwid', 'success');
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      console.error('[Data] Sync failed:', e);
+      showToast('Failed to sync to Ecwid', 'error');
+    }
+  }, [pushOrderAction, isOfflineMode, showToast]);
+
+  const syncOrderStatusToEcwid = useCallback(async (id: string, status: string) => {
+    if (isOfflineMode) return;
+    try {
+      await pushOrderStatusAction({ orderId: id as Id<"orders">, status });
+    } catch (e) {
+      console.error('[Data] Status sync failed:', e);
+    }
+  }, [pushOrderStatusAction, isOfflineMode]);
+
   const addUser = useCallback(async (user: Omit<User, 'id' | 'createdAt'>) => {
     const id = await createUserMutation({
       email: user.email,
@@ -604,6 +654,10 @@ export const [DataProvider, useData] = createContextHook(() => {
     updateOrderStatus,
     updateOrder,
     undoOrderEdit,
+    syncOrderToEcwid,
+    syncOrderStatusToEcwid,
+    loadCachedDataAndSync,
+    isSyncing,
     addUser,
     updateUser,
     deleteUser,

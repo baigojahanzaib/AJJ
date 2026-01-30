@@ -13,17 +13,13 @@ import type * as categories from "../categories.js";
 import type * as checkPromotionsQuery from "../checkPromotionsQuery.js";
 import type * as crons from "../crons.js";
 import type * as customers from "../customers.js";
-import type * as debug_orders from "../debug_orders.js";
-import type * as debug_sync from "../debug_sync.js";
 import type * as ecwid from "../ecwid.js";
 import type * as ecwidCron from "../ecwidCron.js";
 import type * as files from "../files.js";
-import type * as fix_sync from "../fix_sync.js";
 import type * as orders from "../orders.js";
 import type * as products from "../products.js";
 import type * as seed from "../seed.js";
 import type * as setup from "../setup.js";
-import type * as sync_orders from "../sync_orders.js";
 import type * as users from "../users.js";
 
 import type {
@@ -38,17 +34,13 @@ declare const fullApi: ApiFromModules<{
   checkPromotionsQuery: typeof checkPromotionsQuery;
   crons: typeof crons;
   customers: typeof customers;
-  debug_orders: typeof debug_orders;
-  debug_sync: typeof debug_sync;
   ecwid: typeof ecwid;
   ecwidCron: typeof ecwidCron;
   files: typeof files;
-  fix_sync: typeof fix_sync;
   orders: typeof orders;
   products: typeof products;
   seed: typeof seed;
   setup: typeof setup;
-  sync_orders: typeof sync_orders;
   users: typeof users;
 }>;
 

@@ -6,7 +6,8 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import {
   ArrowLeft, User, Phone, Mail, MapPin, FileText, Calendar, Package,
-  ChevronDown, Edit3, Share2, RotateCcw, X, Check, Clock, Minus, Plus, Trash2, Printer
+  ChevronDown, Edit3, Share2, RotateCcw, X, Check, Clock, Minus, Plus, Trash2, Printer,
+  CloudUpload, RefreshCw
 } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -31,7 +32,7 @@ export default function OrderDetailPage() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { orders, updateOrderStatus, updateOrder, undoOrderEdit } = useData();
+  const { orders, updateOrderStatus, updateOrder, undoOrderEdit, syncOrderToEcwid, syncOrderStatusToEcwid } = useData();
   const { user } = useAuth();
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -484,6 +485,14 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
               <Edit3 size={20} color={Colors.light.text} />
             </TouchableOpacity>
           )}
+          {canEdit && (
+            <TouchableOpacity
+              style={styles.headerBtn}
+              onPress={() => syncOrderToEcwid(order.id)}
+            >
+              <CloudUpload size={20} color={order.ecwidOrderId ? Colors.light.success : Colors.light.primary} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -685,6 +694,25 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
                   </TouchableOpacity>
                 ))}
               </View>
+            )}
+
+            {order.ecwidOrderId && (
+              <TouchableOpacity
+                style={[styles.syncButton, { marginTop: 12 }]}
+                onPress={() => syncOrderStatusToEcwid(order.id, order.status)}
+              >
+                <RefreshCw size={16} color={Colors.light.primary} />
+                <Text style={styles.syncButtonText}>Sync Status to Ecwid</Text>
+              </TouchableOpacity>
+            )}
+            {!order.ecwidOrderId && (
+              <TouchableOpacity
+                style={[styles.syncButton, { marginTop: 12, backgroundColor: Colors.light.primary }]}
+                onPress={() => syncOrderToEcwid(order.id)}
+              >
+                <CloudUpload size={16} color="#fff" />
+                <Text style={[styles.syncButtonText, { color: '#fff' }]}>Push to Ecwid</Text>
+              </TouchableOpacity>
             )}
           </View>
         )}
@@ -1016,6 +1044,23 @@ const styles = StyleSheet.create({
   statusOptionTextActive: {
     color: Colors.light.primaryForeground,
     fontWeight: '600' as const,
+  },
+  syncButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: Colors.light.borderLight,
+  },
+  syncButtonText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.light.primary,
   },
   bottomPadding: {
     height: 40,

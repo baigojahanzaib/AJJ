@@ -2,12 +2,15 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { api } from "./_generated/api";
 
-// List all customers (Paginated)
+// List all active customers (Paginated)
 export const list = query({
-    args: { limit: v.optional(v.number()) },
+    args: { cursor: v.optional(v.string()), limit: v.optional(v.number()) },
     handler: async (ctx, args) => {
         const limit = args.limit ?? 200;
-        return await ctx.db.query("customers").take(limit);
+        return await ctx.db
+            .query("customers")
+            .withIndex("by_isActive", (q) => q.eq("isActive", true))
+            .paginate({ cursor: args.cursor ?? null, numItems: limit });
     },
 });
 

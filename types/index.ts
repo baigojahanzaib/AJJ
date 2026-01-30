@@ -21,6 +21,7 @@ export interface Category {
   parentId?: string;
   isActive: boolean;
   createdAt: string;
+  ecwidId?: number;
 }
 
 export interface VariationOption {
@@ -63,6 +64,7 @@ export interface Product {
   stock: number;
   createdAt: string;
   moq?: number;
+  ecwidId?: number;
   // Ecwid ribbon/promotion tag
   ribbon?: string;
   ribbonColor?: string;
@@ -128,6 +130,7 @@ export interface Order {
   updatedAt: string;
   previousVersion?: Omit<Order, 'previousVersion'>;
   editLog?: OrderEditLog[];
+  ecwidOrderId?: string | number;
 }
 
 export interface DashboardStats {
@@ -151,6 +154,7 @@ export interface Customer {
   company?: string;
   isActive: boolean;
   createdAt: string;
+  ecwidId?: number;
 }
 
 export interface AuthState {

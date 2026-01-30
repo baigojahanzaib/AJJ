@@ -20,10 +20,18 @@ export const [CartProvider, useCart] = createContextHook(() => {
       const match = product.combinations.find(combo => {
         // Every option in the combination must match a selected variation
         return combo.options.every(comboOption => {
-          return selectedVariations.some(selected =>
-            selected.variationName.trim().toLowerCase() === comboOption.name.trim().toLowerCase() &&
-            selected.optionName.trim().toLowerCase() === comboOption.value.trim().toLowerCase()
+          const comboOptName = comboOption.name.trim().toLowerCase();
+          const comboOptValue = comboOption.value.trim().toLowerCase();
+
+          const isMatch = selectedVariations.some(selected =>
+            selected.variationName.trim().toLowerCase() === comboOptName &&
+            selected.optionName.trim().toLowerCase() === comboOptValue
           );
+
+          if (!isMatch) {
+            // console.log(`[Cart] No match for combo option: ${comboOptName}=${comboOptValue}`);
+          }
+          return isMatch;
         });
       });
 

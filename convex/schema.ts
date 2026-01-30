@@ -105,7 +105,8 @@ export default defineSchema({
         .index("by_category", ["categoryId"])
         .index("by_sku", ["sku"])
         .index("by_ecwidId", ["ecwidId"])
-        .index("by_ribbon", ["ribbon"]),
+        .index("by_ribbon", ["ribbon"])
+        .index("by_isActive", ["isActive"]),
 
     customers: defineTable({
         name: v.string(),
@@ -120,7 +121,8 @@ export default defineSchema({
         createdAt: v.string(),
         ecwidId: v.optional(v.number()),
     }).index("by_email", ["email"])
-        .index("by_ecwidId", ["ecwidId"]),
+        .index("by_ecwidId", ["ecwidId"])
+        .index("by_isActive", ["isActive"]),
 
     orders: defineTable({
         orderNumber: v.string(),

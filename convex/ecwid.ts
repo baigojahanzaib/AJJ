@@ -1,7 +1,66 @@
+// ... imports
 import { query, mutation, action, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal, api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+
+export const inspectProduct = query({
+    args: { sku: v.string() },
+    handler: async (ctx, args) => {
+        const product = await ctx.db
+            .query("products")
+            .withIndex("by_sku", (q) => q.eq("sku", args.sku))
+            .first();
+        return product;
+    },
+});
+
+export const checkCombinationsExist = query({
+    args: { sku: v.string() },
+    handler: async (ctx, args) => {
+        const product = await ctx.db
+            .query("products")
+            .withIndex("by_sku", (q) => q.eq("sku", args.sku))
+            .first();
+        return {
+            sku: args.sku,
+            found: !!product,
+            hasCombinations: !!product?.combinations,
+            combinationsCount: product?.combinations?.length
+        };
+    },
+});
+
+export const inspectEcwidProduct = action({
+    args: { productId: v.number() },
+    handler: async (ctx, args) => {
+        const settings = await ctx.runQuery(internal.ecwid.getSettingsInternal);
+        if (!settings) throw new Error("No settings");
+
+        // Check LIST endpoint
+        const url = `https://app.ecwid.com/api/v3/${settings.storeId}/products?keyword=Booster Cables`;
+        console.log("Fetching List URL:", url);
+        const response: any = await fetch(url, {
+            headers: {
+                "Authorization": `Bearer ${settings.accessToken}`,
+                "Content-Type": "application/json",
+            },
+        });
+
+        if (!response.ok) {
+            console.error("Fetch failed:", await response.text());
+            return { error: response.status };
+        }
+
+        const data: any = await response.json();
+        const item = data.items?.[0];
+        if (item) {
+            console.log("List Item Combinations:", item.combinations ? "Present" : "MISSING");
+            return { hasCombinations: !!item.combinations, combinationsCount: item.combinations?.length };
+        }
+        return { error: "No items found" };
+    },
+});
 
 // ============================================================================
 // Settings Queries and Mutations
@@ -342,6 +401,7 @@ export const upsertProduct = internalMutation({
                 existing.categoryId === categoryId &&
                 existing.isActive === args.isActive &&
                 JSON.stringify(existing.variations) === JSON.stringify(args.variations) &&
+                JSON.stringify(existing.combinations) === JSON.stringify(args.combinations) &&
                 existing.stock === args.stock &&
                 existing.ribbon === args.ribbon &&
                 existing.ribbonColor === args.ribbonColor &&
@@ -399,8 +459,8 @@ export const upsertProduct = internalMutation({
  * Full sync from Ecwid - fetches categories, products, and customers
  */
 export const fullSync = action({
-    args: {},
-    handler: async (ctx) => {
+    args: { force: v.optional(v.boolean()) },
+    handler: async (ctx, args) => {
         // Get settings
         const settings = await ctx.runQuery(internal.ecwid.getSettingsInternal);
         if (!settings || !settings.storeId || !settings.accessToken) {
@@ -414,7 +474,8 @@ export const fullSync = action({
         });
 
         const lastSyncTime = settings.lastSuccessfulSyncAt ? new Date(settings.lastSuccessfulSyncAt).getTime() / 1000 : 0;
-        const updatedFromParam = lastSyncTime > 0 ? `&updatedFrom=${Math.floor(lastSyncTime)}` : "";
+        const updatedFromParam = (lastSyncTime > 0 && !args.force) ? `&updatedFrom=${Math.floor(lastSyncTime)}` : "";
+        console.log(`Starting sync. Force: ${args.force}, LastSync: ${lastSyncTime}, Param: ${updatedFromParam}`);
 
         try {
             const ECWID_API_BASE = "https://app.ecwid.com/api/v3";
@@ -552,7 +613,7 @@ export const fullSync = action({
                                 name: o.name?.trim(),
                                 value: o.value?.trim()
                             })) || [],
-                            price: c.price,
+                            price: c.price !== undefined && c.price !== null ? c.price : (prod.price || 0),
                             sku: c.sku,
                             stock: c.quantity
                         })),
@@ -1243,7 +1304,7 @@ export const performManualSync = action({
         try {
             // 1. Pull Customers, Categories, Products
             console.log("Pulling Customers, Categories, Products...");
-            await ctx.runAction(api.ecwid.fullSync);
+            await ctx.runAction(api.ecwid.fullSync, { force: true });
             console.log("Full sync finished.");
         } catch (e) {
             console.error("Full Sync Failed:", e);
@@ -1264,5 +1325,101 @@ export const performManualSync = action({
         return "Sync Process Finished";
     }
 });
+
+/**
+ * Sync a single product by Ecwid ID
+ */
+export const syncProduct = action({
+    args: { ecwidId: v.number() },
+    handler: async (ctx, args) => {
+        const settings = await ctx.runQuery(internal.ecwid.getSettingsInternal);
+        if (!settings || !settings.storeId || !settings.accessToken) {
+            throw new Error("Ecwid is not configured");
+        }
+
+        const url = `https://app.ecwid.com/api/v3/${settings.storeId}/products/${args.ecwidId}`;
+        const response = await fetch(url, {
+            headers: {
+                "Authorization": `Bearer ${settings.accessToken}`,
+                "Content-Type": "application/json",
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch product: ${response.status}`);
+        }
+
+        const prod: any = await response.json();
+        console.log(`Synced product ${prod.id}. Combinations: ${prod.combinations?.length}`);
+
+        // Build variations/combinations logic (copied from fullSync, but simplified)
+
+        // Build images
+        const images: string[] = [];
+        if (prod.imageUrl) images.push(prod.imageUrl);
+        if (prod.galleryImages) {
+            images.push(...prod.galleryImages.map((img: any) => img.url));
+        }
+        if (images.length === 0) images.push("https://via.placeholder.com/300");
+
+        // Build variations
+        const variations: any[] = [];
+        if (prod.options && prod.options.length > 0) {
+            for (const option of prod.options) {
+                const convexVariation = {
+                    id: `opt-${option.name.trim().toLowerCase().replace(/\s+/g, '-')}`,
+                    name: option.name?.trim(),
+                    options: (option.choices || []).map((choice: any, index: number) => {
+                        let priceModifier = choice.priceModifier || 0;
+                        if (choice.priceModifierType === "PERCENT") {
+                            priceModifier = (prod.price * priceModifier) / 100;
+                        }
+                        return {
+                            id: `${option.name.trim().toLowerCase().replace(/\s+/g, '-')}-${index}`,
+                            name: choice.text?.trim(),
+                            priceModifier,
+                            sku: prod.sku ? `${prod.sku}-${choice.text?.trim()}` : `SKU-${index}`,
+                            stock: prod.quantity || 0,
+                        };
+                    }),
+                };
+                variations.push(convexVariation);
+            }
+        }
+
+        const description = (prod.description || "").replace(/<[^>]*>/g, '').trim();
+
+        // Upsert
+        await ctx.runMutation(internal.ecwid.upsertProduct, {
+            ecwidId: prod.id,
+            name: prod.name || "Unnamed Product",
+            description,
+            sku: prod.sku || `ECWID-${prod.id}`,
+            basePrice: prod.price || 0,
+            compareAtPrice: prod.compareToPrice,
+            images,
+            categoryEcwidId: prod.categoryIds?.[0],
+            isActive: prod.enabled !== false,
+            variations,
+            combinations: prod.combinations?.map((c: any) => ({
+                id: c.id,
+                options: c.options?.map((o: any) => ({
+                    name: o.name?.trim(),
+                    value: o.value?.trim()
+                })) || [],
+                price: c.price !== undefined && c.price !== null ? c.price : (prod.price || 0),
+                sku: c.sku,
+                stock: c.quantity
+            })),
+            stock: prod.quantity || 0,
+            ribbon: prod.ribbon?.text,
+            ribbonColor: prod.ribbon?.color,
+            moq: undefined
+        });
+
+        return { success: true, name: prod.name };
+    }
+});
+
 
 
