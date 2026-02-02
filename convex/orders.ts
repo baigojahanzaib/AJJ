@@ -263,6 +263,15 @@ export const undoEdit = mutation({
     },
 });
 
+// Delete an order
+export const remove = mutation({
+    args: { id: v.id("orders") },
+    handler: async (ctx, args) => {
+        await ctx.db.delete(args.id);
+        return { success: true };
+    },
+});
+
 // Get dashboard stats
 // Get dashboard stats
 // Get dashboard stats

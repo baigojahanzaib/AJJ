@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, Modal, Pressable, Animated, Dimensions } from 'react-native';
-import { ChevronRight, ChevronDown, Check } from 'lucide-react-native';
+import { ChevronRight, ChevronDown, Check, CloudUpload, AlertCircle, RefreshCw } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { Order, OrderStatus } from '@/types';
 import Badge from './Badge';
@@ -104,11 +104,33 @@ export default function OrderCard({ order, onPress, showSalesRep = false, onStat
     closeDropdown();
   };
 
+  const isSynced = !!order?.ecwidOrderId;
+  const lastSyncedAt = order?.lastSyncedAt ? new Date(order.lastSyncedAt) : null;
+  const updatedAt = order?.updatedAt ? new Date(order.updatedAt) : new Date();
+  const isUpToDate = isSynced && lastSyncedAt && lastSyncedAt.getTime() >= updatedAt.getTime() - 1000;
+
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+          <View style={styles.orderNumberRow}>
+            <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+            {isSynced && isUpToDate && (
+              <View style={[styles.syncIcon, { backgroundColor: Colors.light.success + '20' }]}>
+                <Check size={12} color={Colors.light.success} strokeWidth={3} />
+              </View>
+            )}
+            {isSynced && !isUpToDate && (
+              <View style={[styles.syncIcon, { backgroundColor: Colors.light.warning + '20' }]}>
+                <RefreshCw size={12} color={Colors.light.warning} strokeWidth={3} />
+              </View>
+            )}
+            {!isSynced && (
+              <View style={[styles.syncIcon, { backgroundColor: Colors.light.border }]}>
+                <CloudUpload size={12} color={Colors.light.textTertiary} strokeWidth={3} />
+              </View>
+            )}
+          </View>
           <Text style={styles.date}>{formatDate(order.createdAt)}</Text>
         </View>
         {onStatusChange ? (
@@ -239,6 +261,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700' as const,
     color: Colors.light.text,
+  },
+  orderNumberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  syncIcon: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   date: {
     fontSize: 13,

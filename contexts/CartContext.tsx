@@ -109,6 +109,20 @@ export const [CartProvider, useCart] = createContextHook(() => {
     setItems(prev => prev.filter(item => item.id !== itemId));
   }, []);
 
+  const updateItemPrice = useCallback((itemId: string, newUnitPrice: number) => {
+    console.log('[Cart] Updating price for item:', itemId, 'to:', newUnitPrice);
+    setItems(prev => prev.map(item => {
+      if (item.id === itemId) {
+        return {
+          ...item,
+          unitPrice: newUnitPrice,
+          totalPrice: newUnitPrice * item.quantity,
+        };
+      }
+      return item;
+    }));
+  }, []);
+
   const clearCart = useCallback(() => {
     console.log('[Cart] Clearing cart');
     setItems([]);
@@ -144,6 +158,7 @@ export const [CartProvider, useCart] = createContextHook(() => {
     setNotes,
     addItem,
     updateQuantity,
+    updateItemPrice,
     removeItem,
     clearCart,
   };

@@ -70,6 +70,7 @@ export default defineSchema({
         createdAt: v.string(),
         // Ecwid integration
         ecwidId: v.optional(v.number()),
+        lastSyncedAt: v.optional(v.string()), // Added for cleanup
     }).index("by_ecwidId", ["ecwidId"]),
 
     products: defineTable({
@@ -101,6 +102,7 @@ export default defineSchema({
         // Ecwid integration
         ecwidId: v.optional(v.number()),
         updatedAt: v.optional(v.string()),
+        lastSyncedAt: v.optional(v.string()), // Added for cleanup
     })
         .index("by_category", ["categoryId"])
         .index("by_sku", ["sku"])
@@ -120,6 +122,7 @@ export default defineSchema({
         isActive: v.boolean(),
         createdAt: v.string(),
         ecwidId: v.optional(v.number()),
+        lastSyncedAt: v.optional(v.string()), // Added for cleanup
     }).index("by_email", ["email"])
         .index("by_ecwidId", ["ecwidId"])
         .index("by_isActive", ["isActive"]),
@@ -153,6 +156,7 @@ export default defineSchema({
         previousVersion: v.optional(v.any()),
         editLog: v.optional(v.array(orderEditLogValidator)),
         ecwidOrderId: v.optional(v.union(v.string(), v.number())),
+        lastSyncedAt: v.optional(v.string()),
     })
         .index("by_salesRep", ["salesRepId"])
         .index("by_status", ["status"])

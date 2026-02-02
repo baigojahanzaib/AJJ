@@ -214,6 +214,19 @@ export const checkAndSync = internalAction({
                 offset += limit;
             }
 
+            // Cleanup stale data (only if not incremental, or if specifically desired?)
+            // Ideally, incremental syncs MIGHT miss deletions if the API doesn't report them.
+            // Ecwid API 'updatedFrom' returns *changes*. Deletions might not be in the list?
+            // Actually, querying "all products" is safer for cleanup.
+            // But if this cron is incremental, we CANT run cleanup because we didn't see all products.
+            if (!isIncremental) {
+                // console.log(`[Ecwid Cron] Cleaning up data older than ${syncStartTime}`);
+                // await ctx.runMutation(internal.ecwid.deleteStaleCategories, { syncedBefore: syncStartTime });
+                // await ctx.runMutation(internal.ecwid.deleteStaleProducts, { syncedBefore: syncStartTime });
+            } else {
+                console.log(`[Ecwid Cron] Skipping cleanup for incremental sync`);
+            }
+
             await ctx.runMutation(internal.ecwid.updateSyncStatus, {
                 status: "success",
                 message: `Auto-sync: ${categoryCount} categories, ${productCount} products`,

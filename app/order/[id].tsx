@@ -32,7 +32,7 @@ export default function OrderDetailPage() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { orders, updateOrderStatus, updateOrder, undoOrderEdit, syncOrderToEcwid, syncOrderStatusToEcwid } = useData();
+  const { orders, updateOrderStatus, updateOrder, undoOrderEdit, deleteOrder, syncOrderToEcwid, syncOrderStatusToEcwid } = useData();
   const { user } = useAuth();
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -53,10 +53,23 @@ export default function OrderDetailPage() {
   const [editItems, setEditItems] = useState<OrderItem[]>([]);
   const [editDiscount, setEditDiscount] = useState('0');
 
+  // Price editing state for order items
+  const [editingItemPriceId, setEditingItemPriceId] = useState<string | null>(null);
+  const [editingItemPriceValue, setEditingItemPriceValue] = useState('');
+
   const order = orders.find(o => o.id === id);
   const isAdmin = user?.role === 'admin';
   const canEdit = isAdmin || order?.salesRepId === user?.id;
   const canUndo = !!order?.previousVersion;
+
+  const isSynced = !!order?.ecwidOrderId;
+  const lastSyncedAt = order?.lastSyncedAt ? new Date(order.lastSyncedAt) : null;
+  const updatedAt = order?.updatedAt ? new Date(order.updatedAt) : new Date();
+
+  // If never synced, it's not up to date.
+  // If synced, check if sync time is after update time.
+  // We add a small buffer (e.g. 1s) because sometimes update writes happen slightly after sync timestamp generation
+  const isUpToDate = isSynced && lastSyncedAt && lastSyncedAt.getTime() >= updatedAt.getTime() - 1000;
 
   const editedTotals = useMemo(() => {
     const subtotal = editItems.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -319,6 +332,36 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     setEditItems(prev => prev.filter(item => item.id !== itemId));
   };
 
+  const startEditItemPrice = (itemId: string, currentPrice: number) => {
+    setEditingItemPriceId(itemId);
+    setEditingItemPriceValue(currentPrice.toString());
+  };
+
+  const saveEditItemPrice = () => {
+    if (editingItemPriceId && editingItemPriceValue) {
+      const newPrice = parseFloat(editingItemPriceValue);
+      if (!isNaN(newPrice) && newPrice >= 0) {
+        setEditItems(prev => prev.map(item => {
+          if (item.id === editingItemPriceId) {
+            return {
+              ...item,
+              unitPrice: newPrice,
+              totalPrice: newPrice * item.quantity,
+            };
+          }
+          return item;
+        }));
+      }
+    }
+    setEditingItemPriceId(null);
+    setEditingItemPriceValue('');
+  };
+
+  const cancelEditItemPrice = () => {
+    setEditingItemPriceId(null);
+    setEditingItemPriceValue('');
+  };
+
   const renderEditModal = () => (
     <Modal
       visible={showEditModal}
@@ -382,7 +425,35 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
                 />
                 <View style={styles.editItemInfo}>
                   <Text style={styles.editItemName} numberOfLines={1}>{item.productName}</Text>
-                  <Text style={styles.editItemPrice}>R{item.unitPrice.toFixed(2)} each</Text>
+                  {editingItemPriceId === item.id ? (
+                    <View style={styles.priceEditRow}>
+                      <View style={styles.priceInputRow}>
+                        <Text style={styles.priceCurrencySmall}>R</Text>
+                        <TextInput
+                          style={styles.priceInputSmall}
+                          value={editingItemPriceValue}
+                          onChangeText={setEditingItemPriceValue}
+                          keyboardType="decimal-pad"
+                          autoFocus
+                          selectTextOnFocus
+                        />
+                      </View>
+                      <TouchableOpacity style={styles.priceEditBtnSmall} onPress={saveEditItemPrice}>
+                        <Check size={14} color={Colors.light.success} />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.priceEditBtnSmall} onPress={cancelEditItemPrice}>
+                        <X size={14} color={Colors.light.danger} />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.editItemPriceTouchable}
+                      onPress={() => startEditItemPrice(item.id, item.unitPrice)}
+                    >
+                      <Text style={styles.editItemPrice}>R{item.unitPrice.toFixed(2)} each</Text>
+                      <Edit3 size={12} color={Colors.light.textTertiary} style={{ marginLeft: 4 }} />
+                    </TouchableOpacity>
+                  )}
                   <View style={styles.editItemActions}>
                     <View style={styles.quantityControls}>
                       <TouchableOpacity
@@ -458,6 +529,39 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
             </View>
           </View>
 
+          <View style={styles.editSection}>
+            <TouchableOpacity
+              style={styles.deleteOrderBtn}
+              onPress={() => {
+                setAlertConfig({
+                  visible: true,
+                  title: 'Delete Order',
+                  message: 'Are you sure you want to delete this order? This action cannot be undone.',
+                  type: 'warning',
+                  buttons: [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: async () => {
+                        try {
+                          await deleteOrder(id);
+                          setShowEditModal(false);
+                          router.back();
+                        } catch (error) {
+                          console.error('Failed to delete order:', error);
+                        }
+                      },
+                    },
+                  ],
+                });
+              }}
+            >
+              <Trash2 size={18} color="#fff" />
+              <Text style={styles.deleteOrderBtnText}>Delete Order</Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.bottomPadding} />
         </ScrollView>
       </SafeAreaView>
@@ -487,10 +591,11 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
           )}
           {canEdit && (
             <TouchableOpacity
-              style={styles.headerBtn}
-              onPress={() => syncOrderToEcwid(order.id)}
+              style={[styles.headerBtn, isUpToDate && { opacity: 0.3 }]}
+              onPress={() => !isUpToDate && syncOrderToEcwid(order.id)}
+              disabled={!!isUpToDate}
             >
-              <CloudUpload size={20} color={order.ecwidOrderId ? Colors.light.success : Colors.light.primary} />
+              <CloudUpload size={20} color={isSynced ? (isUpToDate ? Colors.light.success : Colors.light.warning) : Colors.light.primary} />
             </TouchableOpacity>
           )}
         </View>
@@ -502,6 +607,21 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
             label={currentStatus?.label || order.status}
             variant={currentStatus?.color || 'default'}
           />
+          {isSynced && (
+            <Badge
+              label={isUpToDate ? "Synced" : "Unsynced Changes"}
+              variant={isUpToDate ? "success" : "warning"}
+              style={{ marginLeft: 8 }}
+            />
+          )}
+          {!isSynced && (
+            <Badge
+              label="Not Synced"
+              variant="default"
+              style={{ marginLeft: 8, backgroundColor: Colors.light.border }}
+              textStyle={{ color: Colors.light.textSecondary }}
+            />
+          )}
           <View style={styles.dateContainer}>
             <Calendar size={14} color={Colors.light.textTertiary} />
             <Text style={styles.dateText}>{formatDate(order.createdAt)}</Text>
@@ -696,16 +816,26 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
               </View>
             )}
 
-            {order.ecwidOrderId && (
+            {/* Sync Logic for Body Buttons */}
+            {isSynced ? (
               <TouchableOpacity
-                style={[styles.syncButton, { marginTop: 12 }]}
-                onPress={() => syncOrderStatusToEcwid(order.id, order.status)}
+                style={[
+                  styles.syncButton,
+                  { marginTop: 12, opacity: isUpToDate ? 0.6 : 1 }
+                ]}
+                onPress={() => !isUpToDate && syncOrderToEcwid(order.id)}
+                disabled={isUpToDate}
               >
-                <RefreshCw size={16} color={Colors.light.primary} />
-                <Text style={styles.syncButtonText}>Sync Status to Ecwid</Text>
+                {isUpToDate ? (
+                  <Check size={16} color={Colors.light.success} />
+                ) : (
+                  <RefreshCw size={16} color={Colors.light.primary} />
+                )}
+                <Text style={[styles.syncButtonText, isUpToDate && { color: Colors.light.success }]}>
+                  {isUpToDate ? "Synced with Ecwid" : "Push Changes to Ecwid"}
+                </Text>
               </TouchableOpacity>
-            )}
-            {!order.ecwidOrderId && (
+            ) : (
               <TouchableOpacity
                 style={[styles.syncButton, { marginTop: 12, backgroundColor: Colors.light.primary }]}
                 onPress={() => syncOrderToEcwid(order.id)}
@@ -1169,6 +1299,44 @@ const styles = StyleSheet.create({
     color: Colors.light.textTertiary,
     marginTop: 2,
   },
+  editItemPriceTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  priceEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
+  },
+  priceInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  priceCurrencySmall: {
+    fontSize: 12,
+    fontWeight: '500' as const,
+    color: Colors.light.text,
+  },
+  priceInputSmall: {
+    fontSize: 12,
+    color: Colors.light.text,
+    minWidth: 50,
+    padding: 0,
+  },
+  priceEditBtnSmall: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.light.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   editItemActions: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1227,5 +1395,19 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surface,
     borderRadius: 16,
     padding: 16,
+  },
+  deleteOrderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.light.danger,
+    borderRadius: 12,
+    padding: 16,
+    gap: 8,
+  },
+  deleteOrderBtnText: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+    color: '#fff',
   },
 });

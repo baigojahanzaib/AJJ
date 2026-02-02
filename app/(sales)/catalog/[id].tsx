@@ -179,6 +179,15 @@ export default function ProductDetailPage() {
                                         ...prev,
                                         [variation.id]: option.id,
                                     }));
+
+                                    // Scroll to image if available
+                                    if (option.image) {
+                                        const imageIndex = displayImages.indexOf(option.image);
+                                        if (imageIndex !== -1) {
+                                            scrollToImage(imageIndex);
+                                        }
+                                    }
+
                                     Haptics.selectionAsync();
                                 }}
                             >
@@ -267,14 +276,39 @@ export default function ProductDetailPage() {
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [imageModalVisible, setImageModalVisible] = useState(false);
     const screenWidth = Dimensions.get('window').width;
+    const scrollRef = useRef<ScrollView>(null);
 
     const insets = useSafeAreaInsets();
+
+    // Combine product images with variation images
+    const displayImages = useMemo(() => {
+        if (!product) return [];
+        const images = [...product.images];
+
+        // Add unique variation images
+        product.variations.forEach(variation => {
+            variation.options.forEach(option => {
+                if (option.image && !images.includes(option.image)) {
+                    images.push(option.image);
+                }
+            });
+        });
+
+        return images;
+    }, [product]);
 
     const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const slideSize = event.nativeEvent.layoutMeasurement.width;
         const index = event.nativeEvent.contentOffset.x / slideSize;
         const roundIndex = Math.round(index);
         setActiveImageIndex(roundIndex);
+    };
+
+    const scrollToImage = (index: number) => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTo({ x: index * screenWidth, animated: true });
+            setActiveImageIndex(index);
+        }
     };
 
     // Animation values for swipe transition
@@ -340,13 +374,14 @@ export default function ProductDetailPage() {
                     <ScrollView showsVerticalScrollIndicator={false}>
                         <View style={styles.imageContainer}>
                             <ScrollView
+                                ref={scrollRef}
                                 horizontal
                                 pagingEnabled
                                 showsHorizontalScrollIndicator={false}
                                 onScroll={handleScroll}
                                 scrollEventThrottle={16}
                             >
-                                {product.images.map((image, index) => (
+                                {displayImages.map((image, index) => (
                                     <TouchableOpacity
                                         key={index}
                                         activeOpacity={0.9}
@@ -363,9 +398,9 @@ export default function ProductDetailPage() {
                                     </TouchableOpacity>
                                 ))}
                             </ScrollView>
-                            {product.images.length > 1 && (
+                            {displayImages.length > 1 && (
                                 <View style={styles.pagination}>
-                                    {product.images.map((_, index) => (
+                                    {displayImages.map((_, index) => (
                                         <View
                                             key={index}
                                             style={[
@@ -380,7 +415,7 @@ export default function ProductDetailPage() {
 
                         <FullScreenImageModal
                             visible={imageModalVisible}
-                            images={product.images}
+                            images={displayImages}
                             initialIndex={activeImageIndex}
                             onClose={() => setImageModalVisible(false)}
                         />

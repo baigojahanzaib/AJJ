@@ -37,9 +37,9 @@ export const inspectEcwidProduct = action({
         const settings = await ctx.runQuery(internal.ecwid.getSettingsInternal);
         if (!settings) throw new Error("No settings");
 
-        // Check LIST endpoint
-        const url = `https://app.ecwid.com/api/v3/${settings.storeId}/products?keyword=Booster Cables`;
-        console.log("Fetching List URL:", url);
+        // Fetch specific product by ID
+        const url = `https://app.ecwid.com/api/v3/${settings.storeId}/products/${args.productId}`;
+        console.log("Fetching Product URL:", url);
         const response: any = await fetch(url, {
             headers: {
                 "Authorization": `Bearer ${settings.accessToken}`,
@@ -52,12 +52,15 @@ export const inspectEcwidProduct = action({
             return { error: response.status };
         }
 
-        const data: any = await response.json();
-        const item = data.items?.[0];
+        const item: any = await response.json();
+        /*
         if (item) {
-            console.log("List Item Combinations:", item.combinations ? "Present" : "MISSING");
+            console.log("Item Combinations:", item.combinations ? "Present" : "MISSING");
             return { hasCombinations: !!item.combinations, combinationsCount: item.combinations?.length };
         }
+        */
+        return item;
+
         return { error: "No items found" };
     },
 });
@@ -199,6 +202,7 @@ export const upsertCategory = internalMutation({
         image: v.optional(v.string()),
         parentEcwidId: v.optional(v.number()),
         isActive: v.boolean(),
+        lastSyncedAt: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         // Check if category exists by ecwidId
@@ -226,7 +230,12 @@ export const upsertCategory = internalMutation({
                 existing.parentId === parentId &&
                 existing.isActive === args.isActive
             ) {
-                // No changes, skip write
+                // Even if no content changes, we MUST update lastSyncedAt to prevent cleanup
+                if (args.lastSyncedAt) {
+                    await ctx.db.patch(existing._id, {
+                        lastSyncedAt: args.lastSyncedAt
+                    });
+                }
                 return existing._id;
             }
 
@@ -236,6 +245,7 @@ export const upsertCategory = internalMutation({
                 image: args.image,
                 parentId,
                 isActive: args.isActive,
+                lastSyncedAt: args.lastSyncedAt,
             });
             return existing._id;
         } else {
@@ -247,6 +257,7 @@ export const upsertCategory = internalMutation({
                 isActive: args.isActive,
                 createdAt: new Date().toISOString(),
                 ecwidId: args.ecwidId,
+                lastSyncedAt: args.lastSyncedAt,
             });
         }
     },
@@ -266,6 +277,7 @@ export const upsertCustomer = internalMutation({
         countryCode: v.optional(v.string()),
         postalCode: v.optional(v.string()),
         company: v.optional(v.string()),
+        lastSyncedAt: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         // Check if customer exists by email (primary key for customers table)
@@ -290,6 +302,12 @@ export const upsertCustomer = internalMutation({
                 existing.company === args.company &&
                 existing.ecwidId === args.ecwidId
             ) {
+                // Even if no content changes, we MUST update lastSyncedAt to prevent cleanup
+                if (args.lastSyncedAt) {
+                    await ctx.db.patch(existing._id, {
+                        lastSyncedAt: args.lastSyncedAt
+                    });
+                }
                 return existing._id;
             }
 
@@ -299,6 +317,7 @@ export const upsertCustomer = internalMutation({
                 address: fullAddress,
                 company: args.company,
                 ecwidId: args.ecwidId,
+                lastSyncedAt: args.lastSyncedAt,
             });
             return existing._id;
         } else {
@@ -311,6 +330,7 @@ export const upsertCustomer = internalMutation({
                 isActive: true, // Default to active for synced customers
                 createdAt: new Date().toISOString(),
                 ecwidId: args.ecwidId,
+                lastSyncedAt: args.lastSyncedAt,
             });
         }
     },
@@ -356,6 +376,7 @@ export const upsertProduct = internalMutation({
         ribbon: v.optional(v.string()),
         ribbonColor: v.optional(v.string()),
         moq: v.optional(v.number()),
+        lastSyncedAt: v.optional(v.string()),
     },
     handler: async (ctx, args) => {
         // Check if product exists by ecwidId
@@ -374,18 +395,30 @@ export const upsertProduct = internalMutation({
             categoryId = category?._id ?? "";
         }
 
-        // If no category found, use first available or create "Uncategorized"
+        // If no category found, use "Uncategorized" category (check by name first to avoid race condition)
         if (!categoryId) {
-            const anyCategory = await ctx.db.query("categories").first();
-            if (anyCategory) {
-                categoryId = anyCategory._id;
+            // First, try to find existing "Uncategorized" category to avoid race conditions
+            const uncategorized = await ctx.db
+                .query("categories")
+                .filter(q => q.eq(q.field("name"), "Uncategorized"))
+                .first();
+
+            if (uncategorized) {
+                categoryId = uncategorized._id;
             } else {
-                categoryId = await ctx.db.insert("categories", {
-                    name: "Uncategorized",
-                    description: "Products without a category",
-                    isActive: true,
-                    createdAt: new Date().toISOString(),
-                });
+                // Fallback: try any category
+                const anyCategory = await ctx.db.query("categories").first();
+                if (anyCategory) {
+                    categoryId = anyCategory._id;
+                } else {
+                    // Last resort: create Uncategorized (rare race condition possible, but much less likely)
+                    categoryId = await ctx.db.insert("categories", {
+                        name: "Uncategorized",
+                        description: "Products without a category",
+                        isActive: true,
+                        createdAt: new Date().toISOString(),
+                    });
+                }
             }
         }
 
@@ -407,11 +440,14 @@ export const upsertProduct = internalMutation({
                 existing.ribbonColor === args.ribbonColor &&
                 existing.moq === args.moq
             ) {
-                // No changes, skip write
+                // No changes, skip write but update lastSyncedAt
+                if (args.lastSyncedAt) {
+                    await ctx.db.patch(existing._id, { lastSyncedAt: args.lastSyncedAt });
+                }
                 return existing._id;
             }
 
-            await ctx.db.patch(existing._id, {
+            const updates: any = {
                 name: args.name,
                 description: args.description,
                 sku: args.sku,
@@ -426,7 +462,14 @@ export const upsertProduct = internalMutation({
                 ribbon: args.ribbon,
                 ribbonColor: args.ribbonColor,
                 moq: args.moq,
-            });
+                updatedAt: new Date().toISOString(),
+            };
+
+            if (args.lastSyncedAt) {
+                updates.lastSyncedAt = args.lastSyncedAt;
+            }
+
+            await ctx.db.patch(existing._id, updates);
             return existing._id;
         } else {
             return await ctx.db.insert("products", {
@@ -446,8 +489,55 @@ export const upsertProduct = internalMutation({
                 moq: args.moq,
                 createdAt: new Date().toISOString(),
                 ecwidId: args.ecwidId,
+                lastSyncedAt: args.lastSyncedAt,
             });
         }
+    },
+});
+
+/**
+ * Delete products that haven't been synced since a specific time
+ */
+export const deleteStaleProducts = internalMutation({
+    args: { syncedBefore: v.string() },
+    handler: async (ctx, args) => {
+        const products = await ctx.db.query("products")
+            .withIndex("by_ecwidId")
+            .filter(q => q.neq(q.field("ecwidId"), undefined))
+            .collect();
+
+        let deletedCount = 0;
+        for (const product of products) {
+            if (!product.lastSyncedAt || product.lastSyncedAt < args.syncedBefore) {
+                await ctx.db.delete(product._id);
+                deletedCount++;
+            }
+        }
+        console.log(`Deleted ${deletedCount} stale products.`);
+        return deletedCount;
+    },
+});
+
+/**
+ * Delete categories that haven't been synced since a specific time
+ */
+export const deleteStaleCategories = internalMutation({
+    args: { syncedBefore: v.string() },
+    handler: async (ctx, args) => {
+        const categories = await ctx.db.query("categories")
+            .withIndex("by_ecwidId")
+            .filter(q => q.neq(q.field("ecwidId"), undefined))
+            .collect();
+
+        let deletedCount = 0;
+        for (const cat of categories) {
+            if (!cat.lastSyncedAt || cat.lastSyncedAt < args.syncedBefore) {
+                await ctx.db.delete(cat._id);
+                deletedCount++;
+            }
+        }
+        console.log(`Deleted ${deletedCount} stale categories.`);
+        return deletedCount;
     },
 });
 
@@ -468,6 +558,7 @@ export const fullSync = action({
         }
 
         // Update status to in_progress
+
         await ctx.runMutation(internal.ecwid.updateSyncStatus, {
             status: "in_progress",
             message: "Starting sync...",
@@ -475,7 +566,9 @@ export const fullSync = action({
 
         const lastSyncTime = settings.lastSuccessfulSyncAt ? new Date(settings.lastSuccessfulSyncAt).getTime() / 1000 : 0;
         const updatedFromParam = (lastSyncTime > 0 && !args.force) ? `&updatedFrom=${Math.floor(lastSyncTime)}` : "";
-        console.log(`Starting sync. Force: ${args.force}, LastSync: ${lastSyncTime}, Param: ${updatedFromParam}`);
+
+        const syncStartTime = new Date().toISOString();
+        console.log(`Starting sync. Force: ${args.force}, LastSync: ${lastSyncTime}, Param: ${updatedFromParam}, SyncStart: ${syncStartTime}`);
 
         try {
             const ECWID_API_BASE = "https://app.ecwid.com/api/v3";
@@ -511,6 +604,7 @@ export const fullSync = action({
                         image: cat.imageUrl,
                         parentEcwidId: cat.parentId,
                         isActive: cat.enabled !== false,
+                        lastSyncedAt: syncStartTime,
                     });
                     categoryCount++;
                 }
@@ -543,6 +637,12 @@ export const fullSync = action({
                 const prodData = await prodResponse.json();
 
                 for (const prod of prodData.items) {
+                    if (JSON.stringify(prod).includes("TGS-PY-053")) {
+                        console.log("DEBUG: FOUND TGS-PY-053 in Ecwid Data!");
+                        console.log("Product Name:", prod.name);
+                        console.log("Product ID:", prod.id);
+                        console.log("Product SKU:", prod.sku);
+                    }
                     // Build images array
                     const images: string[] = [];
                     if (prod.imageUrl) images.push(prod.imageUrl);
@@ -551,6 +651,31 @@ export const fullSync = action({
                     }
                     if (images.length === 0) {
                         images.push("https://via.placeholder.com/300");
+                    }
+
+                    // Analyze combinations to find consistent images for variations
+                    const optionValueImages = new Map<string, Set<string>>();
+
+                    if (prod.combinations && prod.combinations.length > 0) {
+                        for (const comb of prod.combinations) {
+                            if (comb.imageUrl && comb.options) {
+                                for (const opt of comb.options) {
+                                    const key = `${opt.name?.trim().toLowerCase()}:${opt.value?.trim().toLowerCase()}`;
+                                    if (!optionValueImages.has(key)) {
+                                        optionValueImages.set(key, new Set());
+                                    }
+                                    optionValueImages.get(key)?.add(comb.imageUrl);
+                                }
+                            }
+                        }
+                    }
+
+                    // Perform debug logging for a specific product or if combinations exist
+                    if (prod.combinations && prod.combinations.length > 0 && prod.options?.length > 0) {
+                        console.log(`[Sync Debug] Product: ${prod.name} (${prod.id})`);
+                        console.log(`[Sync Debug] Combinations: ${prod.combinations.length}`);
+                        // console.log(`[Sync Debug] Options: ${prod.options.map((o: any) => o.name).join(', ')}`);
+                        // console.log(`[Sync Debug] Mapped Images Keys: ${Array.from(optionValueImages.keys()).join(', ')}`);
                     }
 
                     // Build variations from options
@@ -565,13 +690,25 @@ export const fullSync = action({
                                     if (choice.priceModifierType === "PERCENT") {
                                         priceModifier = (prod.price * priceModifier) / 100;
                                     }
+
+                                    // Determine image
+                                    const key = `${option.name.trim().toLowerCase()}:${choice.text?.trim().toLowerCase()}`;
+                                    const images = optionValueImages.get(key);
+                                    let image: string | undefined = undefined;
+
+                                    // Only assign image if ALL combinations with this option value have the SAME image (or if there's only one)
+                                    // This prevents assigning "Red" shirt image to "Small" size if "Small" comes in both Red and Blue.
+                                    if (images && images.size === 1) {
+                                        image = Array.from(images)[0];
+                                    }
+
                                     return {
                                         id: `${option.name.trim().toLowerCase().replace(/\s+/g, '-')}-${index}`,
                                         name: choice.text?.trim(),
                                         priceModifier,
                                         sku: prod.sku ? `${prod.sku}-${choice.text?.trim()}` : `SKU-${index}`,
                                         stock: prod.quantity || 0,
-                                        image: undefined,
+                                        image: image,
                                     };
                                 }),
                             };
@@ -621,6 +758,7 @@ export const fullSync = action({
                         ribbon: prod.ribbon?.text,
                         ribbonColor: prod.ribbon?.color,
                         moq,
+                        lastSyncedAt: syncStartTime,
                     });
                     productCount++;
                 }
@@ -628,6 +766,11 @@ export const fullSync = action({
                 if (offset + prodData.count >= prodData.total) break;
                 offset += limit;
             }
+
+            // Cleanup stale data
+            console.log(`[Sync] Cleaning up data older than ${syncStartTime}`);
+            await ctx.runMutation(internal.ecwid.deleteStaleCategories, { syncedBefore: syncStartTime });
+            await ctx.runMutation(internal.ecwid.deleteStaleProducts, { syncedBefore: syncStartTime });
 
             // =========================================
             // Fetch and sync customers
@@ -668,6 +811,7 @@ export const fullSync = action({
                         countryCode: cust.billingPerson?.countryCode,
                         postalCode: cust.billingPerson?.postalCode,
                         company: cust.billingPerson?.company,
+                        lastSyncedAt: syncStartTime,
                     });
                     customerCount++;
                 }
@@ -682,8 +826,18 @@ export const fullSync = action({
                 message: `Successfully synced ${categoryCount} categories, ${productCount} products, and ${customerCount} customers`,
                 productCount,
                 categoryCount,
-                successfulSyncTime: new Date().toISOString(),
+                successfulSyncTime: syncStartTime,
             });
+
+            // CLEANUP PHASE
+            // Only perform cleanup if we did a full sync (no updatedFrom param) or if forced
+            if (!updatedFromParam || args.force) {
+                console.log("Performing cleanup of stale data...");
+                await ctx.runMutation(internal.ecwid.deleteStaleProducts, { syncedBefore: syncStartTime });
+                await ctx.runMutation(internal.ecwid.deleteStaleCategories, { syncedBefore: syncStartTime });
+                // Note: We might want to be careful with customers as they might be created locally too?
+                // Current logic assumes customers in DB with ecwidId MUST exist in Ecwid. 
+            }
 
             return { success: true, categoryCount, productCount, customerCount };
 
@@ -853,8 +1007,22 @@ const syncOrderToEcwidHandler = async (ctx: any, args: { orderId: any }) => {
             });
             if (product && product.ecwidId) {
                 productId = product.ecwidId;
-                // Prefer product SKU if available to ensure match
-                if (product.sku) sku = product.sku;
+                // Find the correct variation SKU from combinations based on selectedVariations
+                if (product.combinations && item.selectedVariations?.length > 0) {
+                    const match = (product.combinations as any[]).find((combo: any) =>
+                        combo.options.every((comboOption: any) => {
+                            const comboOptName = comboOption.name?.trim().toLowerCase();
+                            const comboOptValue = comboOption.value?.trim().toLowerCase();
+                            return item.selectedVariations.some((selected: any) =>
+                                selected.variationName?.trim().toLowerCase() === comboOptName &&
+                                selected.optionName?.trim().toLowerCase() === comboOptValue
+                            );
+                        })
+                    );
+                    if (match?.sku) {
+                        sku = match.sku;
+                    }
+                }
             }
         }
 
@@ -947,10 +1115,11 @@ const syncOrderToEcwidHandler = async (ctx: any, args: { orderId: any }) => {
 
         const result = await response.json();
 
-        // Update order with Ecwid ID
+        // Update order with Ecwid ID and lastSyncedAt
         await ctx.runMutation(internal.ecwid.updateOrderEcwidId, {
             orderId: args.orderId,
-            ecwidOrderId: result.id
+            ecwidOrderId: result.id,
+            lastSyncedAt: new Date().toISOString()
         });
 
         console.log(`Successfully synced order ${order.orderNumber} to Ecwid. Ecwid ID: ${result.id}`);
@@ -1130,12 +1299,17 @@ export const getProductInternal = internalQuery({
 export const updateOrderEcwidId = internalMutation({
     args: {
         orderId: v.id("orders"),
-        ecwidOrderId: v.union(v.string(), v.number())
+        ecwidOrderId: v.union(v.string(), v.number()),
+        lastSyncedAt: v.optional(v.string())
     },
     handler: async (ctx, args) => {
-        await ctx.db.patch(args.orderId, {
+        const patch: any = {
             ecwidOrderId: args.ecwidOrderId
-        });
+        };
+        if (args.lastSyncedAt) {
+            patch.lastSyncedAt = args.lastSyncedAt;
+        }
+        await ctx.db.patch(args.orderId, patch);
     },
 });
 
@@ -1423,3 +1597,17 @@ export const syncProduct = action({
 
 
 
+
+export const inspectBooster = action({
+    handler: async (ctx): Promise<any> => {
+        const result = await ctx.runAction(api.ecwid.inspectEcwidProduct, { productId: 215080965 });
+        const combinations = (result as any).combinations || [];
+        const options = (result as any).options || [];
+        console.log("INSPECT RESULT combinations count:", combinations.length);
+        if (combinations.length > 0) {
+            console.log("First Combination:", JSON.stringify(combinations[0], null, 2));
+        }
+        console.log("Options:", JSON.stringify(options, null, 2));
+        return result;
+    },
+});

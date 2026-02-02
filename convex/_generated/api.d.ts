@@ -13,6 +13,8 @@ import type * as categories from "../categories.js";
 import type * as checkPromotionsQuery from "../checkPromotionsQuery.js";
 import type * as crons from "../crons.js";
 import type * as customers from "../customers.js";
+import type * as debug_sku from "../debug_sku.js";
+import type * as debug_variations from "../debug_variations.js";
 import type * as ecwid from "../ecwid.js";
 import type * as ecwidCron from "../ecwidCron.js";
 import type * as files from "../files.js";
@@ -34,6 +36,8 @@ declare const fullApi: ApiFromModules<{
   checkPromotionsQuery: typeof checkPromotionsQuery;
   crons: typeof crons;
   customers: typeof customers;
+  debug_sku: typeof debug_sku;
+  debug_variations: typeof debug_variations;
   ecwid: typeof ecwid;
   ecwidCron: typeof ecwidCron;
   files: typeof files;

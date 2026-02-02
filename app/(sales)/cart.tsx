@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, TouchableOpacity, ScrollView, KeyboardAvoidingV
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { Minus, Plus, Trash2, ShoppingBag, CheckCircle, UserPlus, Search, X, ChevronRight, MapPin } from 'lucide-react-native';
+import { Minus, Plus, Trash2, ShoppingBag, CheckCircle, UserPlus, Search, X, ChevronRight, MapPin, Edit3, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useCart } from '@/contexts/CartContext';
@@ -30,7 +30,7 @@ type CustomerModalStep = 'list' | 'create' | 'confirm';
 export default function SalesCart() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { items, customerInfo, notes, subtotal, tax, total, itemCount, setCustomerInfo, setNotes, updateQuantity, removeItem, clearCart } = useCart();
+  const { items, customerInfo, notes, subtotal, tax, total, itemCount, setCustomerInfo, setNotes, updateQuantity, updateItemPrice, removeItem, clearCart } = useCart();
   const { addOrder, addCustomer, users, activeCustomers } = useData();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,6 +62,10 @@ export default function SalesCart() {
     buttons: [],
   });
 
+  // Price editing state
+  const [editingPriceItemId, setEditingPriceItemId] = useState<string | null>(null);
+  const [editPriceValue, setEditPriceValue] = useState('');
+
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
     setAlertConfig({ ...config, visible: true });
   };
@@ -70,6 +74,29 @@ export default function SalesCart() {
     setAlertConfig(prev => ({ ...prev, visible: false }));
   };
 
+  const startEditPrice = (itemId: string, currentPrice: number) => {
+    setEditingPriceItemId(itemId);
+    setEditPriceValue(currentPrice.toString());
+    Haptics.selectionAsync();
+  };
+
+  const saveEditPrice = () => {
+    if (editingPriceItemId && editPriceValue) {
+      const newPrice = parseFloat(editPriceValue);
+      if (!isNaN(newPrice) && newPrice >= 0) {
+        updateItemPrice(editingPriceItemId, newPrice);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    }
+    setEditingPriceItemId(null);
+    setEditPriceValue('');
+  };
+
+  const cancelEditPrice = () => {
+    setEditingPriceItemId(null);
+    setEditPriceValue('');
+    Haptics.selectionAsync();
+  };
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return activeCustomers;
@@ -207,11 +234,32 @@ export default function SalesCart() {
         }
       }
 
+      // Helper function to find the combination-specific SKU based on selected variations
+      const findCombinationSku = (product: typeof items[0]['product'], selectedVariations: typeof items[0]['selectedVariations']): string => {
+        if (product.combinations && product.combinations.length > 0) {
+          const match = product.combinations.find(combo =>
+            combo.options.every(comboOption => {
+              const comboOptName = comboOption.name.trim().toLowerCase();
+              const comboOptValue = comboOption.value.trim().toLowerCase();
+              return selectedVariations.some(selected =>
+                selected.variationName.trim().toLowerCase() === comboOptName &&
+                selected.optionName.trim().toLowerCase() === comboOptValue
+              );
+            })
+          );
+          if (match?.sku) {
+            return match.sku;
+          }
+        }
+        // Fallback to base SKU
+        return product.sku;
+      };
+
       const orderItems = items.map(item => ({
         id: item.id,
         productId: item.product.id,
         productName: item.product.name,
-        productSku: item.product.sku,
+        productSku: findCombinationSku(item.product, item.selectedVariations),
         productImage: item.product.images[0],
         selectedVariations: item.selectedVariations,
         quantity: item.quantity,
@@ -704,7 +752,37 @@ export default function SalesCart() {
                         {item.selectedVariations.map(v => v.optionName).join(' / ')}
                       </Text>
                     )}
-                    <Text style={styles.itemPrice}>R{item.unitPrice.toFixed(2)} each</Text>
+                    {editingPriceItemId === item.id ? (
+                      <View style={styles.priceEditContainer}>
+                        <View style={styles.priceInputWrapper}>
+                          <Text style={styles.priceCurrency}>R</Text>
+                          <TextInput
+                            style={styles.priceInput}
+                            value={editPriceValue}
+                            onChangeText={setEditPriceValue}
+                            keyboardType="decimal-pad"
+                            autoFocus
+                            selectTextOnFocus
+                          />
+                        </View>
+                        <View style={styles.priceEditActions}>
+                          <TouchableOpacity style={styles.priceEditBtn} onPress={saveEditPrice}>
+                            <Check size={16} color={Colors.light.success} />
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.priceEditBtn} onPress={cancelEditPrice}>
+                            <X size={16} color={Colors.light.danger} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.priceEditTouchable}
+                        onPress={() => startEditPrice(item.id, item.unitPrice)}
+                      >
+                        <Text style={styles.itemPrice}>R{item.unitPrice.toFixed(2)} each</Text>
+                        <Edit3 size={12} color={Colors.light.textTertiary} style={{ marginLeft: 4 }} />
+                      </TouchableOpacity>
+                    )}
                   </View>
                 </View>
                 <View style={styles.itemActions}>
@@ -908,6 +986,48 @@ const styles = StyleSheet.create({
   itemPrice: {
     fontSize: 14,
     color: Colors.light.textSecondary,
+  },
+  priceEditTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  priceEditContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  priceInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  priceCurrency: {
+    fontSize: 14,
+    fontWeight: '500' as const,
+    color: Colors.light.text,
+    marginRight: 2,
+  },
+  priceInput: {
+    fontSize: 14,
+    color: Colors.light.text,
+    minWidth: 60,
+    padding: 0,
+  },
+  priceEditActions: {
+    flexDirection: 'row',
+    marginLeft: 8,
+    gap: 4,
+  },
+  priceEditBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.light.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   itemActions: {
     flexDirection: 'row',
