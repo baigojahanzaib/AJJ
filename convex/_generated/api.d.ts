@@ -18,10 +18,13 @@ import type * as debug_variations from "../debug_variations.js";
 import type * as ecwid from "../ecwid.js";
 import type * as ecwidCron from "../ecwidCron.js";
 import type * as files from "../files.js";
+import type * as fix_skus from "../fix_skus.js";
 import type * as orders from "../orders.js";
 import type * as products from "../products.js";
 import type * as seed from "../seed.js";
 import type * as setup from "../setup.js";
+import type * as sync_fixes from "../sync_fixes.js";
+import type * as sync_queries from "../sync_queries.js";
 import type * as users from "../users.js";
 
 import type {
@@ -41,10 +44,13 @@ declare const fullApi: ApiFromModules<{
   ecwid: typeof ecwid;
   ecwidCron: typeof ecwidCron;
   files: typeof files;
+  fix_skus: typeof fix_skus;
   orders: typeof orders;
   products: typeof products;
   seed: typeof seed;
   setup: typeof setup;
+  sync_fixes: typeof sync_fixes;
+  sync_queries: typeof sync_queries;
   users: typeof users;
 }>;
 
