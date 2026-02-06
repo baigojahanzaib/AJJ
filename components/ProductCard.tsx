@@ -5,6 +5,7 @@ import { Product } from '@/types';
 import Badge from './Badge';
 
 import { useCart } from '@/contexts/CartContext';
+import { useData } from '@/contexts/DataContext';
 
 interface ProductCardProps {
   product: Product;
@@ -14,6 +15,7 @@ interface ProductCardProps {
 
 export default function ProductCard({ product, onPress, variant = 'grid' }: ProductCardProps) {
   const { items } = useCart();
+  const { resolveImageUri } = useData();
 
   const cartQuantity = items
     .filter(item => item.product.id === product.id)
@@ -56,14 +58,15 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
     return { min, max, hasRange: max > min };
   };
 
-  const { min, max, hasRange } = getPriceRange();
+  const { min, hasRange } = getPriceRange();
+  const productImageUri = resolveImageUri(product.images[0]) || product.images[0];
 
   if (variant === 'list') {
     return (
       <TouchableOpacity style={styles.listContainer} onPress={onPress} activeOpacity={0.7}>
         <View style={styles.listImageWrapper}>
           <Image
-            source={{ uri: product.images[0] }}
+            source={{ uri: productImageUri }}
             style={styles.listImage}
             contentFit="contain"
           />
@@ -95,7 +98,7 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
     <TouchableOpacity style={styles.gridContainer} onPress={onPress} activeOpacity={0.7}>
       <View style={styles.imageContainer}>
         <Image
-          source={{ uri: product.images[0] }}
+          source={{ uri: productImageUri }}
           style={styles.gridImage}
           contentFit="contain"
         />

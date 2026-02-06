@@ -1,18 +1,27 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery, useMutation, useAction, useConvex } from 'convex/react';
 import { api } from '../convex/_generated/api';
-import { Product, Category, Order, User, Customer, DashboardStats, OrderEditLog, OrderStatus } from '@/types';
+import { Product, Category, Order, User, Customer, DashboardStats, OrderStatus } from '@/types';
 import { Id } from '../convex/_generated/dataModel';
 import {
   saveProducts, getCachedProducts,
   saveCategories, getCachedCategories,
   saveCustomers, getCachedCustomers,
-  saveOrders, getCachedOrders
+  saveOrders, getCachedOrders,
+  setLastSyncTimestamp
 } from '../lib/offline-storage';
-import { queueOrder } from '../lib/sync-manager';
+import { queueOrder, queueOrderUpdate, updatePendingOrder } from '../lib/sync-manager';
 import { useOffline } from './OfflineContext';
 import * as Haptics from 'expo-haptics';
+import { useNotification } from './NotificationContext';
+import { useAuth } from './AuthContext';
+import {
+  loadImageCacheIndex,
+  cacheProductImages,
+  resolveCachedImageUri,
+  ImageCacheIndex
+} from '../lib/product-image-cache';
 
 // Helper to map Convex document to our types
 function mapProduct(doc: any): Product {
@@ -107,8 +116,17 @@ function mapCustomer(doc: any): Customer {
   };
 }
 
-import { useNotification } from './NotificationContext';
-import { useAuth } from './AuthContext';
+function withoutId<T extends { id?: unknown }>(updates: T): Omit<T, 'id'> {
+  const result = { ...updates } as T & { id?: unknown };
+  delete result.id;
+  return result;
+}
+
+function compactObject<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
+  ) as Partial<T>;
+}
 
 export type CatalogSortOption = 'default' | 'price_low' | 'price_high';
 export type CatalogFilter = { type: 'all' | 'category' | 'ribbon'; id: string | null };
@@ -116,13 +134,15 @@ export type CatalogFilter = { type: 'all' | 'category' | 'ribbon'; id: string | 
 export const [DataProvider, useData] = createContextHook(() => {
   const { isOfflineMode, refreshPendingCount } = useOffline();
   const { showToast } = useNotification();
-  const { user, isAdmin } = useAuth();
+  const { user, isAuthenticated } = useAuth();
 
   // Local state for offline data
   const [cachedProducts, setCachedProducts] = useState<Product[]>([]);
   const [cachedCategories, setCachedCategories] = useState<Category[]>([]);
   const [cachedCustomers, setCachedCustomers] = useState<Customer[]>([]);
   const [cachedOrders, setCachedOrders] = useState<Order[]>([]);
+  const [imageCacheIndex, setImageCacheIndex] = useState<ImageCacheIndex>({});
+  const imageCacheIndexRef = useRef<ImageCacheIndex>({});
 
   // Catalog Shared State
   const [searchQuery, setSearchQuery] = useState('');
@@ -130,9 +150,10 @@ export const [DataProvider, useData] = createContextHook(() => {
   const [sortBy, setSortBy] = useState<CatalogSortOption>('default');
 
   // Track previous orders for notifications
-  const prevOrderIdsRef = useRef<Set<string>>(new Set());
   const prevOrderStatusesRef = useRef<Map<string, string>>(new Map());
-  const isOrdersInitializedRef = useRef(false);
+  const [hasHydratedCache, setHasHydratedCache] = useState(false);
+  const autoSyncKeyRef = useRef<string | null>(null);
+  const emptyCacheWarningShownRef = useRef(false);
 
   // Manual sync state
   const [isSyncing, setIsSyncing] = useState(false);
@@ -142,12 +163,11 @@ export const [DataProvider, useData] = createContextHook(() => {
   // const convexProducts = useQuery(api.products.list); // DISABLED
 
   // Keep other queries that are small enough or needed live
-  const convexCategories = useQuery(api.categories.list);
-  const convexOrders = useQuery(api.orders.list); // This is now optimized with take(200)
-  const convexUsers = useQuery(api.users.list) ?? [];
-  // const convexCustomers = useQuery(api.customers.list); // DISABLED
-  const convexCustomers = undefined;
-  const convexDashboardStats = useQuery(api.orders.getDashboardStats);
+  const convexCategories = useQuery(api.categories.list, isAuthenticated ? {} : "skip");
+  const convexOrders = useQuery(api.orders.list, isAuthenticated ? {} : "skip");
+  const convexUsersQuery = useQuery(api.users.list, isAuthenticated ? {} : "skip");
+  const convexUsers = useMemo(() => convexUsersQuery ?? [], [convexUsersQuery]);
+  const convexDashboardStats = useQuery(api.orders.getDashboardStats, isAuthenticated ? {} : "skip");
 
   // Convex mutations
   const createProductMutation = useMutation(api.products.create);
@@ -166,165 +186,249 @@ export const [DataProvider, useData] = createContextHook(() => {
   const createCustomerMutation = useMutation(api.customers.create);
   const updateCustomerMutation = useMutation(api.customers.update);
 
-  const { useAction } = require("convex/react");
   const pushOrderAction = useAction(api.ecwid.syncOrderToEcwid);
   const pushOrderStatusAction = useAction(api.ecwid.syncOrderStatusToEcwid);
 
   // Use the Convex client directly for manual fetches
-  const { useConvex } = require("convex/react");
   const convex = useConvex();
 
-  // Load cached data on mount AND trigger delta sync
-  useEffect(() => {
-    loadCachedDataAndSync();
-  }, [isOfflineMode]);
-
-  const loadCachedDataAndSync = async () => {
+  const loadCachedData = useCallback(async () => {
     try {
       console.log('[Data] Loading cached data...');
-      const [p, c, cust, o] = await Promise.all([
+      const [productsCache, categoriesCache, customersCache, ordersCache, imageIndex] = await Promise.all([
         getCachedProducts(),
         getCachedCategories(),
         getCachedCustomers(),
-        getCachedOrders()
+        getCachedOrders(),
+        loadImageCacheIndex(),
       ]);
-      setCachedProducts(p);
-      setCachedCategories(c);
-      setCachedCustomers(cust);
-      setCachedOrders(o);
 
-      console.log(`[Data] Cached loaded: ${p.length} prods, ${c.length} cats, ${cust.length} custs, ${o.length} orders`);
+      setCachedProducts(productsCache);
+      setCachedCategories(categoriesCache);
+      setCachedCustomers(customersCache);
+      setCachedOrders(ordersCache);
+      setImageCacheIndex(imageIndex);
+      imageCacheIndexRef.current = imageIndex;
+      setHasHydratedCache(true);
 
-      if (!isOfflineMode) {
-        syncData(p, cust, c, o);
-      }
+      console.log(
+        `[Data] Cached loaded: ${productsCache.length} prods, ${categoriesCache.length} cats, ${customersCache.length} custs, ${ordersCache.length} orders, ${Object.keys(imageIndex).length} cached images`
+      );
+
+      return {
+        productsCache,
+        categoriesCache,
+        customersCache,
+        ordersCache,
+      };
     } catch (error) {
       console.error('[Data] Error loading cache:', error);
+      setHasHydratedCache(true);
+      return {
+        productsCache: [] as Product[],
+        categoriesCache: [] as Category[],
+        customersCache: [] as Customer[],
+        ordersCache: [] as Order[],
+      };
     }
-  };
+  }, []);
 
-  const syncData = async (
-    currentProdCache: Product[],
-    currentCustCache: Customer[],
-    currentCatCache: Category[],
-    currentOrderCache: Order[]
+  const syncData = useCallback(async (
+    seed?: {
+      productsCache: Product[];
+      categoriesCache: Category[];
+      customersCache: Customer[];
+      ordersCache: Order[];
+    },
+    options?: { silent?: boolean }
   ) => {
-    if (isSyncing) return;
+    if (isSyncing || isOfflineMode || !isAuthenticated) return;
+
     setIsSyncing(true);
-    console.log('[Data] Starting Synchronization...');
+    console.log('[Data] Starting synchronization...');
+
+    const currentProdCache = seed?.productsCache ?? cachedProducts;
+    const currentCatCache = seed?.categoriesCache ?? cachedCategories;
+    const currentCustCache = seed?.customersCache ?? cachedCustomers;
+    const currentOrderCache = seed?.ordersCache ?? cachedOrders;
+    let imageSyncSummary: { ready: number; total: number } | null = null;
 
     try {
-      // 1. Paginated Sync Products
-      // We loop until we get everything to ensure full offline capability
-      let allProducts = [...currentProdCache];
-      const productMap = new Map(allProducts.map(p => [p.id, p]));
+      // Fetch all active products with pagination.
+      const productMap = new Map(currentProdCache.map((item) => [item.id, item]));
       let productCursor: string | null = null;
       let productDone = false;
-      let syncCount = 0;
+      let productPages = 0;
 
-      // Safety limit increased slightly, but theoretically we want EVERYTHING for full offline
-      while (!productDone && syncCount < 50) {
-        const result = await convex.query(api.products.list, {
-          cursor: productCursor || undefined,
-          limit: 200
+      while (!productDone && productPages < 100) {
+        const result: any = await convex.query(api.products.list, {
+          cursor: productCursor ?? undefined,
+          limit: 200,
         });
 
-        if (result && result.page) {
-          result.page.map(mapProduct).forEach(p => productMap.set(p.id, p));
-          productCursor = result.continueCursor;
-          productDone = result.isDone;
-          syncCount++;
-        } else {
-          productDone = true;
-        }
+        if (!result || !result.page) break;
+        result.page.map(mapProduct).forEach((item: Product) => productMap.set(item.id, item));
+        productCursor = result.continueCursor;
+        productDone = result.isDone;
+        productPages++;
       }
+
       const mergedProducts = Array.from(productMap.values());
       setCachedProducts(mergedProducts);
-      saveProducts(mergedProducts);
-      console.log(`[Data] Product Sync complete. Total: ${mergedProducts.length}`);
+      await saveProducts(mergedProducts);
+      console.log(`[Data] Product sync complete: ${mergedProducts.length}`);
 
-      // 2. Paginated Sync Customers
-      let custMap = new Map(currentCustCache.map(c => [c.id, c]));
-      let custCursor: string | null = null;
-      let custDone = false;
-      let custSyncCount = 0;
+      const imageCacheResult = await cacheProductImages(
+        mergedProducts,
+        imageCacheIndexRef.current,
+        { cacheMode: 'all', concurrency: 6 }
+      );
+      if (imageCacheResult.updated) {
+        imageCacheIndexRef.current = imageCacheResult.index;
+        setImageCacheIndex(imageCacheResult.index);
+      }
+      console.log(
+        `[Data] Product image cache: total=${imageCacheResult.total}, downloaded=${imageCacheResult.downloaded}, reused=${imageCacheResult.reused}, failed=${imageCacheResult.failed}`
+      );
+      imageSyncSummary = {
+        ready: imageCacheResult.downloaded + imageCacheResult.reused,
+        total: imageCacheResult.total,
+      };
 
-      while (!custDone && custSyncCount < 50) {
-        const result = await convex.query(api.customers.list, {
-          cursor: custCursor || undefined,
-          limit: 200
+      // Fetch all active customers with pagination.
+      const customerMap = new Map(currentCustCache.map((item) => [item.id, item]));
+      let customerCursor: string | null = null;
+      let customerDone = false;
+      let customerPages = 0;
+
+      while (!customerDone && customerPages < 100) {
+        const result: any = await convex.query(api.customers.list, {
+          cursor: customerCursor ?? undefined,
+          limit: 200,
         });
 
-        if (result && result.page) {
-          result.page.map(mapCustomer).forEach(c => custMap.set(c.id, c));
-          custCursor = result.continueCursor;
-          custDone = result.isDone;
-          custSyncCount++;
-        } else {
-          custDone = true;
-        }
+        if (!result || !result.page) break;
+        result.page.map(mapCustomer).forEach((item: Customer) => customerMap.set(item.id, item));
+        customerCursor = result.continueCursor;
+        customerDone = result.isDone;
+        customerPages++;
       }
-      const mergedCustomers = Array.from(custMap.values());
+
+      const mergedCustomers = Array.from(customerMap.values());
       setCachedCustomers(mergedCustomers);
-      saveCustomers(mergedCustomers);
-      console.log(`[Data] Customer Sync complete. Total: ${mergedCustomers.length}`);
+      await saveCustomers(mergedCustomers);
+      console.log(`[Data] Customer sync complete: ${mergedCustomers.length}`);
 
-      // 3. Sync Categories (Small dataset typically, fetch all)
-      const categoriesRaw = await convex.query(api.categories.list);
+      // Categories are small enough to fetch in one request.
+      const categoriesRaw = await convex.query(api.categories.list, {});
       if (categoriesRaw) {
-        const mappedCategories = categoriesRaw.map(mapCategory);
-        // Merge with cache? Categories don't change often, overwrite is usually safe if we fetched all
-        // But map approach is safer
-        const catMap = new Map(currentCatCache.map(c => [c.id, c]));
-        mappedCategories.forEach(c => catMap.set(c.id, c));
-        const mergedCategories = Array.from(catMap.values());
+        const categoryMap = new Map(currentCatCache.map((item) => [item.id, item]));
+        categoriesRaw.map(mapCategory).forEach((item: Category) => categoryMap.set(item.id, item));
+        const mergedCategories = Array.from(categoryMap.values());
         setCachedCategories(mergedCategories);
-        saveCategories(mergedCategories);
-        console.log(`[Data] Category Sync complete. Total: ${mergedCategories.length}`);
+        await saveCategories(mergedCategories);
+        console.log(`[Data] Category sync complete: ${mergedCategories.length}`);
       }
 
-      // 4. Paginated Sync Orders
-      // IMPORTANT: For full offline history, we need all orders or at least a significant chunk.
-      // We will try to fetch ALL orders for this user if possible (salesRep) or just all orders if admin?
-      // For now, using the generalized `list` from existing code which seems to be "Recent" via `take(limit)`.
-      // BUT `list` in `convex/orders.ts` uses `take` not pagination with cursor in the current implementation I saw?
-      // Wait, `convex/orders.ts` implementation of `list` was:
-      // return await ctx.db.query("orders").order("desc").take(limit);
-      // It DOES NOT return a cursor. It returns an array.
-      // SO pagination loop will fail if I use `list` expecting `page` and `continueCursor`.
-      // I need to check `convex/orders.ts` again.
-      // Ah, I see: `export const list = query({ ... handler: ... take(limit) })`
-      // It is NOT a `query` that supports automatic pagination via `usePaginatedQuery` standard object result (page, isDone, continueCursor).
-      // It returns just `Order[]`.
-      // So for Orders, we can only fetch the Limit.
-      // However, the user wants "every single order".
-      // To support "every single order" with `take(limit)`, we'd need to fetch a huge number or implementing paging.
-      // Since I can't easily change the backend to add cursor-based pagination without risk (modifying `convex/orders.ts` significantly),
-      // I will fetch a LARGE number (e.g. 1000) which should cover most use cases for now, or loop with manual "created_at" cursor if needed.
-      // But `take(limit)` is hard limit.
-      // Let's rely on the existing `list` but call it with a large limit?
-      // Or better, let's look for `convexOrders` usage.
-      // Retrying: I will fetch 1000 orders.
-      const ordersRaw = await convex.query(api.orders.list, { limit: 1000 });
+      // Orders endpoint is currently take(limit), so fetch a large window.
+      const ordersRaw = await convex.query(api.orders.list, { limit: 5000 });
       if (ordersRaw) {
-        const mappedOrders = ordersRaw.map(mapOrder);
-        const orderMap = new Map(currentOrderCache.map(o => [o.id, o]));
-        mappedOrders.forEach(o => orderMap.set(o.id, o));
+        const orderMap = new Map(currentOrderCache.map((item) => [item.id, item]));
+        ordersRaw.map(mapOrder).forEach((item: Order) => orderMap.set(item.id, item));
         const mergedOrders = Array.from(orderMap.values());
         setCachedOrders(mergedOrders);
-        saveOrders(mergedOrders);
-        console.log(`[Data] Order Sync complete. Total: ${mergedOrders.length}`);
+        await saveOrders(mergedOrders);
+        console.log(`[Data] Order sync complete: ${mergedOrders.length}`);
       }
 
-      showToast('Offline database fully synced', 'success');
-
+      await setLastSyncTimestamp(new Date().toISOString());
+      if (!options?.silent) {
+        if (imageSyncSummary && imageSyncSummary.total > 0) {
+          showToast(
+            `Offline sync complete. ${imageSyncSummary.ready}/${imageSyncSummary.total} product images ready.`,
+            'success'
+          );
+        } else {
+          showToast('Offline database fully synced', 'success');
+        }
+      }
     } catch (err) {
-      console.error("Sync failed:", err);
+      console.error('[Data] Sync failed:', err);
       showToast('Sync failed partially. Some data may be outdated.', 'error');
+      throw err;
     } finally {
       setIsSyncing(false);
     }
-  };
+  }, [
+    cachedCategories,
+    cachedCustomers,
+    cachedOrders,
+    cachedProducts,
+    convex,
+    isAuthenticated,
+    isOfflineMode,
+    isSyncing,
+    showToast,
+  ]);
+
+  const loadCachedDataAndSync = useCallback(async () => {
+    const seed = await loadCachedData();
+
+    if (!isOfflineMode && isAuthenticated) {
+      await syncData(seed);
+    }
+  }, [isAuthenticated, isOfflineMode, loadCachedData, syncData]);
+
+  // Initial cache hydration.
+  useEffect(() => {
+    loadCachedData();
+  }, [loadCachedData]);
+
+  // Auto sync once per online session per user.
+  useEffect(() => {
+    if (isOfflineMode || !isAuthenticated || !user?.id) {
+      autoSyncKeyRef.current = null;
+    }
+  }, [isAuthenticated, isOfflineMode, user?.id]);
+
+  useEffect(() => {
+    if (!hasHydratedCache || isOfflineMode || !isAuthenticated || !user?.id) return;
+
+    const key = `${user.id}:online`;
+    if (autoSyncKeyRef.current === key) return;
+    autoSyncKeyRef.current = key;
+
+    syncData(undefined, { silent: true }).catch(() => {
+      autoSyncKeyRef.current = null;
+    });
+  }, [hasHydratedCache, isAuthenticated, isOfflineMode, syncData, user?.id]);
+
+  useEffect(() => {
+    if (!hasHydratedCache) return;
+    if (!isOfflineMode) {
+      emptyCacheWarningShownRef.current = false;
+      return;
+    }
+
+    const hasOfflineSnapshot =
+      cachedProducts.length > 0 ||
+      cachedCategories.length > 0 ||
+      cachedCustomers.length > 0 ||
+      cachedOrders.length > 0;
+
+    if (!hasOfflineSnapshot && !emptyCacheWarningShownRef.current) {
+      emptyCacheWarningShownRef.current = true;
+      showToast('No offline snapshot yet. Connect once to sync data.', 'error');
+    }
+  }, [
+    cachedCategories.length,
+    cachedCustomers.length,
+    cachedOrders.length,
+    cachedProducts.length,
+    hasHydratedCache,
+    isOfflineMode,
+    showToast,
+  ]);
 
   // Reactive Caching Listeners
   // If we are online and using the app, getting live updates via `useQuery` (Convex)
@@ -335,16 +439,16 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   // For Categories:
   useEffect(() => {
-    if (convexCategories && !isOfflineMode) {
+    if (convexCategories && !isOfflineMode && isAuthenticated) {
       const mapped = convexCategories.map(mapCategory);
       setCachedCategories(mapped);
       saveCategories(mapped);
     }
-  }, [convexCategories, isOfflineMode]);
+  }, [convexCategories, isAuthenticated, isOfflineMode]);
 
   // For Orders: (Only syncs the `take(200)` window from useQuery, but better than nothing for "live" updates)
   useEffect(() => {
-    if (convexOrders && !isOfflineMode) {
+    if (convexOrders && !isOfflineMode && isAuthenticated) {
       const mapped = convexOrders.map(mapOrder);
       // We merge with cache to avoid losing older orders not in the 200 window
       setCachedOrders(prev => {
@@ -355,7 +459,7 @@ export const [DataProvider, useData] = createContextHook(() => {
         return merged;
       });
     }
-  }, [convexOrders, isOfflineMode]);
+  }, [convexOrders, isAuthenticated, isOfflineMode]);
 
   // ... (keep categories/customers sync logic as is, or remove if they were relying on useQuery effects)
   // For categories/customers, we still rely on useQuery effects below unless changed.
@@ -365,18 +469,9 @@ export const [DataProvider, useData] = createContextHook(() => {
   const products = cachedProducts;
   // (We ignore `convexProducts` since it's disabled)
 
-  const categories = useMemo(() => {
-    if (convexCategories === undefined || isOfflineMode) return cachedCategories;
-    return convexCategories.map(mapCategory);
-  }, [convexCategories, isOfflineMode, cachedCategories]);
-
+  const categories = cachedCategories;
   const customers = cachedCustomers;
-
-  const orders = useMemo(() => {
-    if (convexOrders === undefined || isOfflineMode) return cachedOrders;
-    return convexOrders.map(mapOrder);
-  }, [convexOrders, isOfflineMode, cachedOrders]);
-
+  const orders = cachedOrders;
   const users = useMemo(() => convexUsers.map(mapUser), [convexUsers]);
 
   const activeProducts = useMemo(() => products.filter(p => p.isActive), [products]);
@@ -447,6 +542,10 @@ export const [DataProvider, useData] = createContextHook(() => {
     );
   }, [activeProducts]);
 
+  const resolveImageUri = useCallback((uri: string | null | undefined) => {
+    return resolveCachedImageUri(uri, imageCacheIndex);
+  }, [imageCacheIndex]);
+
   const addProduct = useCallback(async (product: Omit<Product, 'id' | 'createdAt'>) => {
     const id = await createProductMutation({
       name: product.name,
@@ -463,9 +562,10 @@ export const [DataProvider, useData] = createContextHook(() => {
   }, [createProductMutation]);
 
   const updateProduct = useCallback(async (id: string, updates: Partial<Product>) => {
+    const safeUpdates = withoutId(updates);
     await updateProductMutation({
       id: id as unknown as Id<"products">,
-      ...updates,
+      ...safeUpdates,
     });
   }, [updateProductMutation]);
 
@@ -485,9 +585,10 @@ export const [DataProvider, useData] = createContextHook(() => {
   }, [createCategoryMutation]);
 
   const updateCategory = useCallback(async (id: string, updates: Partial<Category>) => {
+    const safeUpdates = withoutId(updates);
     await updateCategoryMutation({
       id: id as unknown as Id<"categories">,
-      ...updates,
+      ...safeUpdates,
     });
   }, [updateCategoryMutation]);
 
@@ -567,26 +668,99 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const updateOrderStatus = useCallback(async (id: string, status: OrderStatus) => {
     if (isOfflineMode) {
-      console.warn('[Data] Cannot update order status while offline');
+      const now = new Date().toISOString();
+      const nextOrders = cachedOrders.map(order => (
+        order.id === id
+          ? {
+              ...order,
+              status,
+              updatedAt: now,
+            }
+          : order
+      ));
+
+      setCachedOrders(nextOrders);
+      await saveOrders(nextOrders);
+
+      if (id.startsWith('TEMP-')) {
+        await updatePendingOrder(id, { status });
+      } else {
+        await queueOrderUpdate({
+          orderId: id,
+          updates: { status },
+          editedBy: user?.id || 'offline-user',
+          editedByName: user?.name || 'Offline User',
+          changeDescription: `Updated: status`,
+        });
+      }
+
+      await refreshPendingCount();
+      showToast('Order status saved offline. It will sync when online.', 'info');
       return;
     }
     await updateOrderStatusMutation({ id: id as unknown as Id<"orders">, status });
-  }, [updateOrderStatusMutation, isOfflineMode]);
+  }, [cachedOrders, isOfflineMode, refreshPendingCount, showToast, updateOrderStatusMutation, user?.id, user?.name]);
 
   const updateOrder = useCallback(async (id: string, updates: Partial<Order>, editedBy: string, editedByName: string, changeDescription: string) => {
+    const safeUpdates = compactObject(withoutId(updates));
+    const effectiveEditedBy = editedBy || user?.id || 'offline-user';
+    const effectiveEditedByName = editedByName || user?.name || 'Offline User';
+
     if (isOfflineMode) {
-      console.warn('[Data] Cannot edit order while offline');
+      const now = new Date().toISOString();
+      const localEditEntry = {
+        editedAt: now,
+        editedBy: effectiveEditedBy,
+        editedByName: effectiveEditedByName,
+        changes: changeDescription,
+      };
+      const nextOrders = cachedOrders.map(order => {
+        if (order.id !== id) return order;
+        return {
+          ...order,
+          ...safeUpdates,
+          updatedAt: now,
+          editLog: [...(order.editLog || []), localEditEntry],
+        };
+      });
+
+      setCachedOrders(nextOrders);
+      await saveOrders(nextOrders);
+
+      if (id.startsWith('TEMP-')) {
+        await updatePendingOrder(id, safeUpdates as any);
+      } else {
+        await queueOrderUpdate({
+          orderId: id,
+          updates: safeUpdates,
+          editedBy: effectiveEditedBy,
+          editedByName: effectiveEditedByName,
+          changeDescription,
+        });
+      }
+
+      await refreshPendingCount();
+      showToast('Order changes saved offline. They will sync when online.', 'info');
+      console.log('[Data] Order updated offline:', id, changeDescription);
       return;
     }
     await updateOrderMutation({
       id: id as Id<"orders">,
-      editedBy,
-      editedByName,
+      editedBy: effectiveEditedBy,
+      editedByName: effectiveEditedByName,
       changeDescription,
-      ...updates,
+      ...safeUpdates,
     });
     console.log('[Data] Order updated:', id, changeDescription);
-  }, [updateOrderMutation, isOfflineMode]);
+  }, [
+    cachedOrders,
+    isOfflineMode,
+    refreshPendingCount,
+    showToast,
+    updateOrderMutation,
+    user?.id,
+    user?.name,
+  ]);
 
   const undoOrderEdit = useCallback(async (id: string) => {
     if (isOfflineMode) return;
@@ -644,9 +818,10 @@ export const [DataProvider, useData] = createContextHook(() => {
   }, [createUserMutation]);
 
   const updateUser = useCallback(async (id: string, updates: Partial<User>) => {
+    const safeUpdates = withoutId(updates);
     await updateUserMutation({
       id: id as unknown as Id<"users">,
-      ...updates,
+      ...safeUpdates,
     });
   }, [updateUserMutation]);
 
@@ -676,9 +851,10 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const updateCustomer = useCallback(async (id: string, updates: Partial<Customer>) => {
     if (isOfflineMode) return;
+    const safeUpdates = withoutId(updates);
     await updateCustomerMutation({
       id: id as unknown as Id<"customers">,
-      ...updates,
+      ...safeUpdates,
     });
   }, [updateCustomerMutation, isOfflineMode]);
 
@@ -728,6 +904,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     getOrdersBySalesRep,
     getProductsByCategory,
     searchProducts,
+    resolveImageUri,
     addProduct,
     updateProduct,
     deleteProduct,

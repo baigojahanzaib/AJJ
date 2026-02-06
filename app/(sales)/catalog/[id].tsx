@@ -18,7 +18,7 @@ import { SelectedVariation, ProductVariation } from '@/types';
 export default function ProductDetailPage() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const router = useRouter();
-    const { filteredSortedProducts, getCategoryById } = useData();
+    const { filteredSortedProducts, getCategoryById, resolveImageUri } = useData();
     const { addItem, items } = useCart();
 
     const [selectedVariations, setSelectedVariations] = useState<Record<string, string>>({});
@@ -182,7 +182,8 @@ export default function ProductDetailPage() {
 
                                     // Scroll to image if available
                                     if (option.image) {
-                                        const imageIndex = displayImages.indexOf(option.image);
+                                        const optionImage = resolveImageUri(option.image) || option.image;
+                                        const imageIndex = displayImages.indexOf(optionImage);
                                         if (imageIndex !== -1) {
                                             scrollToImage(imageIndex);
                                         }
@@ -294,8 +295,8 @@ export default function ProductDetailPage() {
             });
         });
 
-        return images;
-    }, [product]);
+        return images.map((uri) => resolveImageUri(uri) || uri);
+    }, [product, resolveImageUri]);
 
     const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
         const slideSize = event.nativeEvent.layoutMeasurement.width;

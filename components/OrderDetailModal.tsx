@@ -6,6 +6,7 @@ import { Order, OrderStatus } from '@/types';
 import Colors from '@/constants/colors';
 import Badge from '@/components/Badge';
 import Button from '@/components/Button';
+import { useData } from '@/contexts/DataContext';
 
 interface OrderDetailModalProps {
   visible: boolean;
@@ -33,6 +34,7 @@ export default function OrderDetailModal({
   onUpdateStatus,
   mode = 'quick'
 }: OrderDetailModalProps) {
+  const { resolveImageUri } = useData();
   const [viewMode, setViewMode] = useState<'quick' | 'view' | 'edit'>(mode);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | null>(null);
@@ -225,7 +227,7 @@ export default function OrderDetailModal({
           {order.items.map((item, index) => (
             <View key={item.id} style={[styles.orderItem, index > 0 && styles.orderItemBorder]}>
               <Image
-                source={{ uri: item.productImage }}
+                source={{ uri: resolveImageUri(item.productImage) || item.productImage }}
                 style={styles.itemImage}
                 contentFit="cover"
               />

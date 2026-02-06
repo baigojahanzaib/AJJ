@@ -5,10 +5,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const FIRST_LOAD_KEY = '@salesapp_first_load_date';
 
 export function useNetworkStatus() {
-    const [isOnline, setIsOnline] = useState<boolean>(true);
+    const [isOnline, setIsOnline] = useState<boolean>(false);
     const [isFirstLoad, setIsFirstLoad] = useState<boolean>(false);
 
     useEffect(() => {
+        NetInfo.fetch().then((state) => {
+            const online = state.isConnected ?? false;
+            setIsOnline(online);
+            console.log(`[NetworkStatus] Initial connection: ${online ? 'Online' : 'Offline'}`);
+        });
+
         // Subscribe to network state updates
         const unsubscribe = NetInfo.addEventListener((state: NetInfoState) => {
             const online = state.isConnected ?? false;

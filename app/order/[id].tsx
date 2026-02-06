@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform, Alert } from 'react-native';
+import { useState, useMemo, useEffect } from 'react';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform, FlatList } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Image } from 'expo-image';
@@ -15,7 +15,7 @@ import Badge from '@/components/Badge';
 import ThemedAlert from '@/components/ThemedAlert';
 import Input from '@/components/Input';
 import Colors from '@/constants/colors';
-import { OrderStatus, OrderItem } from '@/types';
+import { OrderStatus, OrderItem, Product, SelectedVariation } from '@/types';
 import { generateAndSharePDF } from '@/lib/pdf-generator';
 import { generateAndShareCSV } from '@/lib/csv-generator';
 
@@ -32,7 +32,7 @@ export default function OrderDetailPage() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { orders, updateOrderStatus, updateOrder, undoOrderEdit, deleteOrder, syncOrderToEcwid, syncOrderStatusToEcwid } = useData();
+  const { orders, updateOrderStatus, updateOrder, undoOrderEdit, deleteOrder, syncOrderToEcwid, resolveImageUri, activeProducts } = useData();
   const { user } = useAuth();
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -56,6 +56,10 @@ export default function OrderDetailPage() {
   // Price editing state for order items
   const [editingItemPriceId, setEditingItemPriceId] = useState<string | null>(null);
   const [editingItemPriceValue, setEditingItemPriceValue] = useState('');
+  const [editQuantityDrafts, setEditQuantityDrafts] = useState<Record<string, string>>({});
+  const [showAddItemModal, setShowAddItemModal] = useState(false);
+  const [addItemSearch, setAddItemSearch] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   const order = orders.find(o => o.id === id);
   const isAdmin = user?.role === 'admin';
@@ -63,13 +67,14 @@ export default function OrderDetailPage() {
   const canUndo = !!order?.previousVersion;
 
   const isSynced = !!order?.ecwidOrderId;
-  const lastSyncedAt = order?.lastSyncedAt ? new Date(order.lastSyncedAt) : null;
+  const lastSyncedAtRaw = (order as any)?.lastSyncedAt as string | undefined;
+  const lastSyncedAt = lastSyncedAtRaw ? new Date(lastSyncedAtRaw) : null;
   const updatedAt = order?.updatedAt ? new Date(order.updatedAt) : new Date();
 
   // If never synced, it's not up to date.
   // If synced, check if sync time is after update time.
   // We add a small buffer (e.g. 1s) because sometimes update writes happen slightly after sync timestamp generation
-  const isUpToDate = isSynced && lastSyncedAt && lastSyncedAt.getTime() >= updatedAt.getTime() - 1000;
+  const isUpToDate = !!(isSynced && lastSyncedAt && lastSyncedAt.getTime() >= updatedAt.getTime() - 1000);
 
   const editedTotals = useMemo(() => {
     const subtotal = editItems.reduce((sum, item) => sum + item.totalPrice, 0);
@@ -78,6 +83,36 @@ export default function OrderDetailPage() {
     const total = subtotal - discount + tax;
     return { subtotal, tax, total };
   }, [editItems, editDiscount]);
+
+  useEffect(() => {
+    setEditQuantityDrafts(prev => {
+      const next: Record<string, string> = {};
+      editItems.forEach(item => {
+        next[item.id] = prev[item.id] ?? item.quantity.toString();
+      });
+      return next;
+    });
+  }, [editItems]);
+
+  const filteredProductsForAdd = useMemo(() => {
+    const query = addItemSearch.trim().toLowerCase();
+    if (!query) return activeProducts.slice(0, 120);
+
+    return activeProducts
+      .filter(product => {
+        const variationSearchText = product.variations
+          .flatMap(variation => [variation.name, ...variation.options.map(option => option.name)])
+          .join(' ')
+          .toLowerCase();
+
+        return (
+          product.name.toLowerCase().includes(query) ||
+          product.sku.toLowerCase().includes(query) ||
+          variationSearchText.includes(query)
+        );
+      })
+      .slice(0, 120);
+  }, [activeProducts, addItemSearch]);
 
   if (!order) {
     return (
@@ -223,6 +258,110 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     Haptics.selectionAsync();
   };
 
+  const getVariationKey = (selectedVariations: SelectedVariation[]): string => {
+    return selectedVariations
+      .map(v => `${v.variationId}:${v.optionId}`)
+      .sort()
+      .join('|');
+  };
+
+  const getDefaultSelections = (product: Product): SelectedVariation[] => {
+    return product.variations
+      .map(variation => {
+        const firstOption = variation.options[0];
+        if (!firstOption) return null;
+
+        return {
+          variationId: variation.id,
+          variationName: variation.name,
+          optionId: firstOption.id,
+          optionName: firstOption.name,
+          priceModifier: firstOption.priceModifier,
+        } as SelectedVariation;
+      })
+      .filter((selection): selection is SelectedVariation => !!selection);
+  };
+
+  const getDefaultUnitPrice = (product: Product, selections: SelectedVariation[]): number => {
+    if (product.combinations && product.combinations.length > 0) {
+      const match = product.combinations.find(combo =>
+        combo.options.every(comboOption =>
+          selections.some(selected =>
+            selected.variationName.trim().toLowerCase() === comboOption.name.trim().toLowerCase() &&
+            selected.optionName.trim().toLowerCase() === comboOption.value.trim().toLowerCase()
+          )
+        )
+      );
+
+      if (match) return match.price;
+    }
+
+    return product.basePrice + selections.reduce((sum, selection) => sum + selection.priceModifier, 0);
+  };
+
+  const formatSelectedVariations = (selectedVariations: SelectedVariation[]): string => {
+    if (!selectedVariations.length) return '';
+    return selectedVariations
+      .map(variation => `${variation.variationName}: ${variation.optionName}`)
+      .join(' • ');
+  };
+
+  const getDefaultVariationSummary = (product: Product): string => {
+    if (!product.variations.length) return '';
+
+    const parts = product.variations
+      .map(variation => {
+        const firstOption = variation.options[0];
+        if (!firstOption) return null;
+        return `${variation.name}: ${firstOption.name}`;
+      })
+      .filter((value): value is string => !!value);
+
+    return parts.join(' • ');
+  };
+
+  const addProductToEditItems = (product: Product) => {
+    const selections = getDefaultSelections(product);
+    const unitPrice = getDefaultUnitPrice(product, selections);
+    const variationKey = getVariationKey(selections);
+
+    setEditItems(prev => {
+      const existingIndex = prev.findIndex(item =>
+        item.productId === product.id && getVariationKey(item.selectedVariations) === variationKey
+      );
+
+      if (existingIndex >= 0) {
+        const next = [...prev];
+        const existingItem = next[existingIndex];
+        const nextQuantity = existingItem.quantity + 1;
+        next[existingIndex] = {
+          ...existingItem,
+          quantity: nextQuantity,
+          totalPrice: existingItem.unitPrice * nextQuantity,
+        };
+        return next;
+      }
+
+      const newItem: OrderItem = {
+        id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        productId: product.id,
+        productName: product.name,
+        productSku: product.sku,
+        productImage: product.images[0] || '',
+        selectedVariations: selections,
+        quantity: 1,
+        unitPrice,
+        totalPrice: unitPrice,
+      };
+
+      return [...prev, newItem];
+    });
+
+    setShowAddItemModal(false);
+    setAddItemSearch('');
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
   const openEditModal = () => {
     setEditCustomerName(order.customerName);
     setEditCustomerPhone(order.customerPhone);
@@ -232,11 +371,59 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     setEditStatus(order.status);
     setEditItems([...order.items]);
     setEditDiscount(order.discount.toString());
+    setEditQuantityDrafts(
+      Object.fromEntries(order.items.map(item => [item.id, `${item.quantity}`]))
+    );
+    setEditingItemPriceId(null);
+    setEditingItemPriceValue('');
+    setShowAddItemModal(false);
+    setAddItemSearch('');
     setShowEditModal(true);
     Haptics.selectionAsync();
   };
 
-  const handleSaveEdit = () => {
+  const applyPendingPriceEdit = (itemsToUpdate: OrderItem[]): OrderItem[] => {
+    if (!editingItemPriceId) return itemsToUpdate;
+
+    const pendingPrice = parseFloat(editingItemPriceValue);
+    if (isNaN(pendingPrice) || pendingPrice < 0) return itemsToUpdate;
+
+    return itemsToUpdate.map(item => {
+      if (item.id !== editingItemPriceId) return item;
+      return {
+        ...item,
+        unitPrice: pendingPrice,
+        totalPrice: pendingPrice * item.quantity,
+      };
+    });
+  };
+
+  const getNormalizedEditItems = (itemsToNormalize: OrderItem[]): OrderItem[] => {
+    let nextItems = itemsToNormalize.map(item => {
+      const draftRaw = (editQuantityDrafts[item.id] ?? `${item.quantity}`).trim();
+      const parsed = parseInt(draftRaw, 10);
+      const quantity = Number.isFinite(parsed) && parsed > 0 ? parsed : item.quantity;
+
+      return {
+        ...item,
+        quantity,
+        totalPrice: item.unitPrice * quantity,
+      };
+    });
+
+    nextItems = applyPendingPriceEdit(nextItems);
+    return nextItems;
+  };
+
+  const handleSaveEdit = async () => {
+    if (isSavingEdit) return;
+
+    const normalizedItems = getNormalizedEditItems(editItems);
+    const discount = parseFloat(editDiscount) || 0;
+    const subtotal = normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const tax = (subtotal - discount) * 0.09;
+    const total = subtotal - discount + tax;
+
     const changes: string[] = [];
 
     if (editCustomerName !== order.customerName) changes.push('customer name');
@@ -246,7 +433,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     if (editNotes !== order.notes) changes.push('notes');
     if (editStatus !== order.status) changes.push('status');
     if (editDiscount !== order.discount.toString()) changes.push('discount');
-    if (JSON.stringify(editItems) !== JSON.stringify(order.items)) changes.push('items');
+    if (JSON.stringify(normalizedItems) !== JSON.stringify(order.items)) changes.push('items');
 
     if (changes.length === 0) {
       setShowEditModal(false);
@@ -255,35 +442,53 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
 
     const changeDescription = `Updated: ${changes.join(', ')}`;
 
-    updateOrder(
-      order.id,
-      {
-        customerName: editCustomerName,
-        customerPhone: editCustomerPhone,
-        customerEmail: editCustomerEmail,
-        customerAddress: editCustomerAddress,
-        notes: editNotes,
-        status: editStatus,
-        items: editItems,
-        subtotal: editedTotals.subtotal,
-        tax: editedTotals.tax,
-        discount: parseFloat(editDiscount) || 0,
-        total: editedTotals.total,
-      },
-      user?.id || '',
-      user?.name || '',
-      changeDescription
-    );
+    try {
+      setIsSavingEdit(true);
+      setEditItems(normalizedItems);
+      setEditingItemPriceId(null);
+      setEditingItemPriceValue('');
 
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    setShowEditModal(false);
-    setAlertConfig({
-      visible: true,
-      title: 'Order Updated',
-      message: 'Your changes have been saved. You can undo this edit if needed.',
-      type: 'success',
-      buttons: [{ text: 'OK', style: 'default' }],
-    });
+      await updateOrder(
+        order.id,
+        {
+          customerName: editCustomerName,
+          customerPhone: editCustomerPhone,
+          customerEmail: editCustomerEmail,
+          customerAddress: editCustomerAddress,
+          notes: editNotes,
+          status: editStatus,
+          items: normalizedItems,
+          subtotal,
+          tax,
+          discount,
+          total,
+        },
+        user?.id || '',
+        user?.name || '',
+        changeDescription
+      );
+
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      setShowEditModal(false);
+      setAlertConfig({
+        visible: true,
+        title: 'Order Updated',
+        message: 'Your changes have been saved. You can undo this edit if needed.',
+        type: 'success',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
+    } catch (error) {
+      console.error('[Order] Failed to save edits:', error);
+      setAlertConfig({
+        visible: true,
+        title: 'Save Failed',
+        message: 'Could not save order edits. Check connection and try again.',
+        type: 'error',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   const handleUndo = () => {
@@ -316,6 +521,26 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
         totalPrice: item.unitPrice * newQuantity,
       };
     }));
+    setEditQuantityDrafts(prev => ({ ...prev, [itemId]: `${newQuantity}` }));
+  };
+
+  const commitItemQuantityDraft = (itemId: string) => {
+    const item = editItems.find(i => i.id === itemId);
+    if (!item) return;
+
+    const raw = (editQuantityDrafts[itemId] ?? `${item.quantity}`).trim();
+    if (!raw) {
+      setEditQuantityDrafts(prev => ({ ...prev, [itemId]: `${item.quantity}` }));
+      return;
+    }
+
+    const parsed = parseInt(raw, 10);
+    if (!Number.isFinite(parsed) || parsed < 1) {
+      setEditQuantityDrafts(prev => ({ ...prev, [itemId]: `${item.quantity}` }));
+      return;
+    }
+
+    updateItemQuantity(itemId, parsed);
   };
 
   const removeItem = (itemId: string) => {
@@ -330,6 +555,11 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
       return;
     }
     setEditItems(prev => prev.filter(item => item.id !== itemId));
+    setEditQuantityDrafts(prev => {
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
   };
 
   const startEditItemPrice = (itemId: string, currentPrice: number) => {
@@ -338,23 +568,24 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
   };
 
   const saveEditItemPrice = () => {
-    if (editingItemPriceId && editingItemPriceValue) {
-      const newPrice = parseFloat(editingItemPriceValue);
-      if (!isNaN(newPrice) && newPrice >= 0) {
-        setEditItems(prev => prev.map(item => {
-          if (item.id === editingItemPriceId) {
-            return {
-              ...item,
-              unitPrice: newPrice,
-              totalPrice: newPrice * item.quantity,
-            };
-          }
-          return item;
-        }));
-      }
+    if (!editingItemPriceId) return;
+
+    const newPrice = parseFloat(editingItemPriceValue);
+    if (!isNaN(newPrice) && newPrice >= 0) {
+      setEditItems(prev => prev.map(item => {
+        if (item.id === editingItemPriceId) {
+          return {
+            ...item,
+            unitPrice: newPrice,
+            totalPrice: newPrice * item.quantity,
+          };
+        }
+        return item;
+      }));
     }
     setEditingItemPriceId(null);
     setEditingItemPriceValue('');
+    Haptics.selectionAsync();
   };
 
   const cancelEditItemPrice = () => {
@@ -375,8 +606,12 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
             <X size={24} color={Colors.light.text} />
           </TouchableOpacity>
           <Text style={styles.modalTitle}>Edit Order</Text>
-          <TouchableOpacity style={styles.modalSaveBtn} onPress={handleSaveEdit}>
-            <Check size={24} color={Colors.light.primary} />
+          <TouchableOpacity style={styles.modalSaveBtn} onPress={handleSaveEdit} disabled={isSavingEdit}>
+            {isSavingEdit ? (
+              <RefreshCw size={24} color={Colors.light.primary} />
+            ) : (
+              <Check size={24} color={Colors.light.primary} />
+            )}
           </TouchableOpacity>
         </View>
 
@@ -415,16 +650,30 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
           </View>
 
           <View style={styles.editSection}>
-            <Text style={styles.editSectionTitle}>Order Items</Text>
+            <View style={styles.editItemsHeader}>
+              <Text style={styles.editSectionTitle}>Order Items</Text>
+              <TouchableOpacity style={styles.addItemButton} onPress={() => setShowAddItemModal(true)}>
+                <Plus size={14} color={Colors.light.primaryForeground} />
+                <Text style={styles.addItemButtonText}>Add Item</Text>
+              </TouchableOpacity>
+            </View>
             {editItems.map((item) => (
               <View key={item.id} style={styles.editItemCard}>
                 <Image
-                  source={{ uri: item.productImage }}
+                  source={{ uri: resolveImageUri(item.productImage) || item.productImage }}
                   style={styles.editItemImage}
                   contentFit="cover"
                 />
                 <View style={styles.editItemInfo}>
                   <Text style={styles.editItemName} numberOfLines={1}>{item.productName}</Text>
+                  <Text style={styles.editItemSku} numberOfLines={1}>
+                    SKU: {item.productSku || 'N/A'}
+                  </Text>
+                  {item.selectedVariations.length > 0 && (
+                    <Text style={styles.editItemVariations} numberOfLines={2}>
+                      {formatSelectedVariations(item.selectedVariations)}
+                    </Text>
+                  )}
                   {editingItemPriceId === item.id ? (
                     <View style={styles.priceEditRow}>
                       <View style={styles.priceInputRow}>
@@ -462,7 +711,19 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
                       >
                         <Minus size={14} color={Colors.light.text} />
                       </TouchableOpacity>
-                      <Text style={styles.qtyText}>{item.quantity}</Text>
+                      <TextInput
+                        style={styles.qtyInput}
+                        value={editQuantityDrafts[item.id] ?? `${item.quantity}`}
+                        onChangeText={(text) => {
+                          const numeric = text.replace(/[^0-9]/g, '');
+                          setEditQuantityDrafts(prev => ({ ...prev, [item.id]: numeric }));
+                        }}
+                        keyboardType="number-pad"
+                        returnKeyType="done"
+                        onBlur={() => commitItemQuantityDraft(item.id)}
+                        onSubmitEditing={() => commitItemQuantityDraft(item.id)}
+                        selectTextOnFocus
+                      />
                       <TouchableOpacity
                         style={styles.qtyBtn}
                         onPress={() => updateItemQuantity(item.id, item.quantity + 1)}
@@ -564,6 +825,68 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
 
           <View style={styles.bottomPadding} />
         </ScrollView>
+
+        <Modal
+          visible={showAddItemModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowAddItemModal(false)}
+        >
+          <SafeAreaView style={styles.addItemModalContainer} edges={['top', 'bottom']}>
+            <View style={styles.addItemModalHeader}>
+              <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowAddItemModal(false)}>
+                <X size={24} color={Colors.light.text} />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Add Product</Text>
+              <View style={{ width: 40 }} />
+            </View>
+
+            <View style={styles.addItemSearchContainer}>
+              <TextInput
+                style={styles.addItemSearchInput}
+                value={addItemSearch}
+                onChangeText={setAddItemSearch}
+                placeholder="Search by product name, SKU, or variation"
+                placeholderTextColor={Colors.light.textTertiary}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <FlatList
+              data={filteredProductsForAdd}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.addItemListContent}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.addItemRow}
+                  onPress={() => addProductToEditItems(item)}
+                >
+                  <Image
+                    source={{ uri: resolveImageUri(item.images[0]) || item.images[0] }}
+                    style={styles.addItemImage}
+                    contentFit="cover"
+                  />
+                  <View style={styles.addItemInfo}>
+                    <Text style={styles.addItemName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={styles.addItemSku} numberOfLines={1}>SKU: {item.sku || 'N/A'}</Text>
+                    {item.variations.length > 0 && (
+                      <Text style={styles.addItemVariations} numberOfLines={2}>
+                        {getDefaultVariationSummary(item)}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={styles.addItemPrice}>R{item.basePrice.toFixed(2)}</Text>
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={
+                <View style={styles.addItemEmpty}>
+                  <Text style={styles.addItemEmptyText}>No products found</Text>
+                </View>
+              }
+            />
+          </SafeAreaView>
+        </Modal>
       </SafeAreaView>
     </Modal>
   );
@@ -619,7 +942,6 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
               label="Not Synced"
               variant="default"
               style={{ marginLeft: 8, backgroundColor: Colors.light.border }}
-              textStyle={{ color: Colors.light.textSecondary }}
             />
           )}
           <View style={styles.dateContainer}>
@@ -721,7 +1043,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
             {order.items.map((item, index) => (
               <View key={item.id} style={[styles.orderItem, index > 0 && styles.orderItemBorder]}>
                 <Image
-                  source={{ uri: item.productImage }}
+                  source={{ uri: resolveImageUri(item.productImage) || item.productImage }}
                   style={styles.itemImage}
                   contentFit="cover"
                 />
@@ -1241,6 +1563,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 12,
   },
+  editItemsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  addItemButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: Colors.light.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  addItemButtonText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: Colors.light.primaryForeground,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   editInput: {
     marginBottom: 12,
   },
@@ -1293,6 +1637,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600' as const,
     color: Colors.light.text,
+  },
+  editItemSku: {
+    fontSize: 12,
+    color: Colors.light.textTertiary,
+    marginTop: 1,
+  },
+  editItemVariations: {
+    fontSize: 12,
+    color: Colors.light.textSecondary,
+    marginTop: 2,
   },
   editItemPrice: {
     fontSize: 12,
@@ -1356,12 +1710,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  qtyText: {
+  qtyInput: {
     fontSize: 14,
     fontWeight: '600' as const,
     color: Colors.light.text,
-    minWidth: 20,
+    minWidth: 42,
     textAlign: 'center',
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   editItemTotal: {
     fontSize: 15,
@@ -1409,5 +1767,85 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600' as const,
     color: '#fff',
+  },
+  addItemModalContainer: {
+    flex: 1,
+    backgroundColor: Colors.light.background,
+  },
+  addItemModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.borderLight,
+    backgroundColor: Colors.light.surface,
+  },
+  addItemSearchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.light.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.borderLight,
+  },
+  addItemSearchInput: {
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: Colors.light.text,
+  },
+  addItemListContent: {
+    padding: 16,
+    gap: 10,
+  },
+  addItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    backgroundColor: Colors.light.surface,
+  },
+  addItemImage: {
+    width: 46,
+    height: 46,
+    borderRadius: 8,
+    backgroundColor: Colors.light.surfaceSecondary,
+  },
+  addItemInfo: {
+    flex: 1,
+  },
+  addItemName: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.light.text,
+    marginBottom: 2,
+  },
+  addItemSku: {
+    fontSize: 12,
+    color: Colors.light.textTertiary,
+  },
+  addItemVariations: {
+    fontSize: 12,
+    color: Colors.light.textSecondary,
+    marginTop: 2,
+  },
+  addItemPrice: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.light.text,
+  },
+  addItemEmpty: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  addItemEmptyText: {
+    fontSize: 14,
+    color: Colors.light.textTertiary,
   },
 });

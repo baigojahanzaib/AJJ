@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import createContextHook from '@nkzw/create-context-hook';
-import { useQuery } from 'convex/react';
+import { useConvex } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { User, AuthState } from '@/types';
 
@@ -9,6 +9,7 @@ const VIEW_AS_USER_KEY = '@salesapp_view_as_user';
 const AUTH_STORAGE_KEY = '@salesapp_auth_user';
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
+  const convex = useConvex();
   const [state, setState] = useState<AuthState>({
     user: null,
     isAuthenticated: false,
@@ -16,36 +17,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   });
 
   const [isViewingAsUser, setIsViewingAsUser] = useState(false);
-  const [loginCredentials, setLoginCredentials] = useState<{ email: string; password: string } | null>(null);
-
-  // Query Convex for user validation when credentials are set
-  const convexUser = useQuery(
-    api.users.validateCredentials,
-    loginCredentials ? { email: loginCredentials.email, password: loginCredentials.password } : "skip"
-  );
 
   useEffect(() => {
     loadStoredUser();
     loadViewAsUserState();
   }, []);
 
-  // Handle Convex query result for login
-  useEffect(() => {
-    if (loginCredentials && convexUser !== undefined) {
-      handleConvexLoginResult(convexUser);
-      setLoginCredentials(null);
-    }
-  }, [convexUser, loginCredentials]);
-
-  const handleConvexLoginResult = async (user: any) => {
+  const persistAuthenticatedUser = useCallback(async (user: any) => {
     if (!user) {
-      console.log('[Auth] Invalid credentials from Convex');
-      return;
+      throw new Error('Invalid credentials');
     }
 
-    console.log('[Auth] Login successful for:', user.name);
-
-    // Map Convex user to our User type
     const mappedUser: User = {
       id: user._id,
       email: user.email,
@@ -59,13 +41,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     };
 
     await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(mappedUser));
-
     setState({
       user: mappedUser,
       isAuthenticated: true,
       isLoading: false,
     });
-  };
+  }, []);
 
   const loadViewAsUserState = async () => {
     try {
@@ -101,20 +82,35 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   };
 
   const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPassword = password.trim();
+
+    if (!normalizedEmail || !normalizedPassword) {
+      return { success: false, error: 'Please enter your email and password' };
+    }
+
     try {
-      console.log('[Auth] Attempting login for:', email);
+      console.log('[Auth] Attempting login for:', normalizedEmail);
+      const user = await convex.query(api.users.validateCredentials, {
+        email: normalizedEmail,
+        password: normalizedPassword,
+      });
 
-      // Set credentials to trigger Convex query
-      setLoginCredentials({ email, password });
+      if (!user) {
+        return { success: false, error: 'Invalid email or password' };
+      }
 
-      // For immediate feedback, we'll return success and let the useEffect handle the actual login
-      // This is a workaround since we can't await the Convex query directly in a callback
+      await persistAuthenticatedUser(user);
+      console.log('[Auth] Login successful for:', user.name);
       return { success: true };
     } catch (error) {
       console.error('[Auth] Login error:', error);
-      return { success: false, error: 'An error occurred during login' };
+      return {
+        success: false,
+        error: 'Unable to sign in while offline. Connect once, then continue offline.',
+      };
     }
-  }, []);
+  }, [convex, persistAuthenticatedUser]);
 
   const logout = useCallback(async () => {
     try {

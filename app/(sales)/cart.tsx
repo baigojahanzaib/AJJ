@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, FlatList, TextInput, Modal } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
@@ -26,12 +26,20 @@ interface AlertConfig {
 }
 
 type CustomerModalStep = 'list' | 'create' | 'confirm';
+type CustomerDraft = {
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+};
 
 export default function SalesCart() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { items, customerInfo, notes, subtotal, tax, total, itemCount, setCustomerInfo, setNotes, updateQuantity, updateItemPrice, removeItem, clearCart } = useCart();
-  const { addOrder, addCustomer, users, activeCustomers } = useData();
+  const { addOrder, addCustomer, activeCustomers, resolveImageUri } = useData();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -46,14 +54,7 @@ export default function SalesCart() {
     latitude: undefined as number | undefined,
     longitude: undefined as number | undefined,
   });
-  const [confirmedCustomer, setConfirmedCustomer] = useState<{
-    name: string;
-    phone: string;
-    email: string;
-    address: string;
-    latitude?: number;
-    longitude?: number;
-  } | null>(null);
+  const [confirmedCustomer, setConfirmedCustomer] = useState<CustomerDraft | null>(null);
   const [alertConfig, setAlertConfig] = useState<AlertConfig>({
     visible: false,
     title: '',
@@ -65,6 +66,17 @@ export default function SalesCart() {
   // Price editing state
   const [editingPriceItemId, setEditingPriceItemId] = useState<string | null>(null);
   const [editPriceValue, setEditPriceValue] = useState('');
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setQuantityDrafts(prev => {
+      const next: Record<string, string> = {};
+      items.forEach(item => {
+        next[item.id] = prev[item.id] ?? item.quantity.toString();
+      });
+      return next;
+    });
+  }, [items]);
 
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
     setAlertConfig({ ...config, visible: true });
@@ -98,6 +110,56 @@ export default function SalesCart() {
     Haptics.selectionAsync();
   };
 
+  const commitQuantityDraft = useCallback((itemId: string) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+
+    const draftRaw = (quantityDrafts[itemId] ?? `${item.quantity}`).trim();
+    if (!draftRaw) {
+      setQuantityDrafts(prev => ({ ...prev, [itemId]: `${item.quantity}` }));
+      return;
+    }
+
+    const parsed = parseInt(draftRaw, 10);
+    if (!Number.isFinite(parsed)) {
+      setQuantityDrafts(prev => ({ ...prev, [itemId]: `${item.quantity}` }));
+      return;
+    }
+
+    if (parsed <= 0) {
+      removeItem(itemId);
+      return;
+    }
+
+    updateQuantity(itemId, parsed);
+    setQuantityDrafts(prev => ({ ...prev, [itemId]: `${parsed}` }));
+  }, [items, quantityDrafts, removeItem, updateQuantity]);
+
+  const commitAllDraftEdits = useCallback(() => {
+    if (editingPriceItemId) {
+      const newPrice = parseFloat(editPriceValue);
+      if (!isNaN(newPrice) && newPrice >= 0) {
+        updateItemPrice(editingPriceItemId, newPrice);
+      }
+      setEditingPriceItemId(null);
+      setEditPriceValue('');
+    }
+
+    items.forEach(item => {
+      const draftRaw = (quantityDrafts[item.id] ?? `${item.quantity}`).trim();
+      if (!draftRaw) return;
+      const parsed = parseInt(draftRaw, 10);
+      if (!Number.isFinite(parsed)) return;
+      if (parsed <= 0) {
+        removeItem(item.id);
+        return;
+      }
+      if (parsed !== item.quantity) {
+        updateQuantity(item.id, parsed);
+      }
+    });
+  }, [editPriceValue, editingPriceItemId, items, quantityDrafts, removeItem, updateItemPrice, updateQuantity]);
+
   const filteredCustomers = useMemo(() => {
     if (!customerSearch.trim()) return activeCustomers;
     const search = customerSearch.toLowerCase();
@@ -110,8 +172,18 @@ export default function SalesCart() {
     );
   }, [activeCustomers, customerSearch]);
 
-  const handleOpenCustomerModal = () => {
-    if (items.length === 0) {
+  const handleOpenCustomerModal = useCallback(() => {
+    const hasSubmittableItems = items.some(item => {
+      const draft = (quantityDrafts[item.id] ?? `${item.quantity}`).trim();
+      if (!draft) return item.quantity > 0;
+      const parsed = parseInt(draft, 10);
+      if (!Number.isFinite(parsed)) return item.quantity > 0;
+      return parsed > 0;
+    });
+
+    commitAllDraftEdits();
+
+    if (!hasSubmittableItems) {
       showAlert({
         title: 'Empty Cart',
         message: 'Please add items to your cart before submitting an order.',
@@ -124,7 +196,7 @@ export default function SalesCart() {
     setCustomerSearch('');
     setShowCustomerModal(true);
     Haptics.selectionAsync();
-  };
+  }, [commitAllDraftEdits, items, quantityDrafts]);
 
   const handleSelectCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
@@ -154,6 +226,8 @@ export default function SalesCart() {
       phone: '',
       email: '',
       address: '',
+      latitude: undefined,
+      longitude: undefined,
     });
     setCustomerModalStep('create');
     Haptics.selectionAsync();
@@ -196,7 +270,7 @@ export default function SalesCart() {
     handleSubmitOrder(selectedCustomer, confirmedCustomer);
   };
 
-  const handleSubmitOrder = async (customer?: Customer | null, newCustomerData?: typeof tempCustomerInfo) => {
+  const handleSubmitOrder = async (customer?: Customer | null, newCustomerData?: CustomerDraft) => {
     const customerData = customer
       ? { name: customer.name, phone: customer.phone, email: customer.email, address: customer.address, latitude: customer.latitude, longitude: customer.longitude }
       : newCustomerData || { ...customerInfo, latitude: undefined, longitude: undefined };
@@ -618,7 +692,7 @@ export default function SalesCart() {
             {items.map((item, index) => (
               <View key={item.id} style={[styles.confirmItem, index > 0 && styles.confirmItemBorder]}>
                 <Image
-                  source={{ uri: item.product.images[0] }}
+                  source={{ uri: resolveImageUri(item.product.images[0]) || item.product.images[0] }}
                   style={styles.confirmItemImage}
                   contentFit="cover"
                 />
@@ -741,7 +815,7 @@ export default function SalesCart() {
               <Card key={item.id} style={styles.cartItem}>
                 <View style={styles.itemRow}>
                   <Image
-                    source={{ uri: item.product.images[0] }}
+                    source={{ uri: resolveImageUri(item.product.images[0]) || item.product.images[0] }}
                     style={styles.itemImage}
                     contentFit="cover"
                   />
@@ -790,17 +864,37 @@ export default function SalesCart() {
                     <TouchableOpacity
                       style={styles.quantityButton}
                       onPress={() => {
-                        updateQuantity(item.id, item.quantity - 1);
+                        const nextQuantity = item.quantity - 1;
+                        if (nextQuantity <= 0) {
+                          removeItem(item.id);
+                          return;
+                        }
+                        updateQuantity(item.id, nextQuantity);
+                        setQuantityDrafts(prev => ({ ...prev, [item.id]: `${nextQuantity}` }));
                         Haptics.selectionAsync();
                       }}
                     >
                       <Minus size={16} color={Colors.light.text} />
                     </TouchableOpacity>
-                    <Text style={styles.quantityValue}>{item.quantity}</Text>
+                    <TextInput
+                      style={styles.quantityInput}
+                      value={quantityDrafts[item.id] ?? `${item.quantity}`}
+                      onChangeText={(text) => {
+                        const numeric = text.replace(/[^0-9]/g, '');
+                        setQuantityDrafts(prev => ({ ...prev, [item.id]: numeric }));
+                      }}
+                      keyboardType="number-pad"
+                      returnKeyType="done"
+                      onBlur={() => commitQuantityDraft(item.id)}
+                      onSubmitEditing={() => commitQuantityDraft(item.id)}
+                      selectTextOnFocus
+                    />
                     <TouchableOpacity
                       style={styles.quantityButton}
                       onPress={() => {
-                        updateQuantity(item.id, item.quantity + 1);
+                        const nextQuantity = item.quantity + 1;
+                        updateQuantity(item.id, nextQuantity);
+                        setQuantityDrafts(prev => ({ ...prev, [item.id]: `${nextQuantity}` }));
                         Haptics.selectionAsync();
                       }}
                     >
@@ -1050,12 +1144,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  quantityValue: {
+  quantityInput: {
     fontSize: 16,
     fontWeight: '600' as const,
     color: Colors.light.text,
-    minWidth: 24,
+    minWidth: 42,
     textAlign: 'center',
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   itemTotalContainer: {
     flexDirection: 'row',
