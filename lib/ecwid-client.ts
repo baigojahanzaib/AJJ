@@ -86,6 +86,18 @@ export interface EcwidOrderInput {
         quantity: number;
         sku?: string;
         productId?: number;
+        combinationId?: number;
+        selectedOptions?: Array<{
+            name: string;
+            type: "CHOICE" | "TEXT" | "DATE" | "FILES" | "CHECKBOX" | "SIZE";
+            value?: string;
+            valuesArray?: string[];
+            selections?: Array<{
+                selectionTitle: string;
+                selectionModifier: number;
+                selectionModifierType: "ABSOLUTE" | "PERCENT";
+            }>;
+        }>;
     }>;
     billingPerson?: {
         name?: string;

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform, FlatList } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform, FlatList, Switch } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Image } from 'expo-image';
@@ -11,6 +11,7 @@ import {
 } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
 import Badge from '@/components/Badge';
 import ThemedAlert from '@/components/ThemedAlert';
 import Input from '@/components/Input';
@@ -34,6 +35,7 @@ export default function OrderDetailPage() {
   const router = useRouter();
   const { orders, updateOrderStatus, updateOrder, undoOrderEdit, deleteOrder, syncOrderToEcwid, resolveImageUri, activeProducts } = useData();
   const { user } = useAuth();
+  const { taxSettings } = useRemoteConfig();
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
@@ -52,6 +54,7 @@ export default function OrderDetailPage() {
   const [editStatus, setEditStatus] = useState<OrderStatus>('pending');
   const [editItems, setEditItems] = useState<OrderItem[]>([]);
   const [editDiscount, setEditDiscount] = useState('0');
+  const [editTaxEnabled, setEditTaxEnabled] = useState(true);
 
   // Price editing state for order items
   const [editingItemPriceId, setEditingItemPriceId] = useState<string | null>(null);
@@ -75,14 +78,20 @@ export default function OrderDetailPage() {
   // If synced, check if sync time is after update time.
   // We add a small buffer (e.g. 1s) because sometimes update writes happen slightly after sync timestamp generation
   const isUpToDate = !!(isSynced && lastSyncedAt && lastSyncedAt.getTime() >= updatedAt.getTime() - 1000);
+  const effectiveTaxRate = taxSettings.enabled && editTaxEnabled ? taxSettings.rate : 0;
+  const taxLabel = useMemo(() => {
+    if (!taxSettings.enabled || !editTaxEnabled) return 'Tax (Disabled)';
+    const percentage = (taxSettings.rate * 100).toFixed(2).replace(/\.?0+$/, '');
+    return `Tax (${percentage}%)`;
+  }, [editTaxEnabled, taxSettings.enabled, taxSettings.rate]);
 
   const editedTotals = useMemo(() => {
     const subtotal = editItems.reduce((sum, item) => sum + item.totalPrice, 0);
     const discount = parseFloat(editDiscount) || 0;
-    const tax = (subtotal - discount) * 0.09;
+    const tax = (subtotal - discount) * effectiveTaxRate;
     const total = subtotal - discount + tax;
     return { subtotal, tax, total };
-  }, [editItems, editDiscount]);
+  }, [editItems, editDiscount, effectiveTaxRate]);
 
   useEffect(() => {
     setEditQuantityDrafts(prev => {
@@ -93,6 +102,17 @@ export default function OrderDetailPage() {
       return next;
     });
   }, [editItems]);
+
+  useEffect(() => {
+    if (!taxSettings.enabled) {
+      setEditTaxEnabled(false);
+      return;
+    }
+
+    if (!taxSettings.allowPerOrderSelection) {
+      setEditTaxEnabled(true);
+    }
+  }, [taxSettings.enabled, taxSettings.allowPerOrderSelection]);
 
   const filteredProductsForAdd = useMemo(() => {
     const query = addItemSearch.trim().toLowerCase();
@@ -363,6 +383,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
   };
 
   const openEditModal = () => {
+    const hasTaxApplied = (order.tax || 0) > 0;
     setEditCustomerName(order.customerName);
     setEditCustomerPhone(order.customerPhone);
     setEditCustomerEmail(order.customerEmail);
@@ -371,6 +392,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     setEditStatus(order.status);
     setEditItems([...order.items]);
     setEditDiscount(order.discount.toString());
+    setEditTaxEnabled(taxSettings.enabled ? hasTaxApplied : false);
     setEditQuantityDrafts(
       Object.fromEntries(order.items.map(item => [item.id, `${item.quantity}`]))
     );
@@ -421,7 +443,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     const normalizedItems = getNormalizedEditItems(editItems);
     const discount = parseFloat(editDiscount) || 0;
     const subtotal = normalizedItems.reduce((sum, item) => sum + item.totalPrice, 0);
-    const tax = (subtotal - discount) * 0.09;
+    const tax = (subtotal - discount) * effectiveTaxRate;
     const total = subtotal - discount + tax;
 
     const changes: string[] = [];
@@ -434,6 +456,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     if (editStatus !== order.status) changes.push('status');
     if (editDiscount !== order.discount.toString()) changes.push('discount');
     if (JSON.stringify(normalizedItems) !== JSON.stringify(order.items)) changes.push('items');
+    if (Math.abs(tax - order.tax) > 0.0001) changes.push('tax');
 
     if (changes.length === 0) {
       setShowEditModal(false);
@@ -757,6 +780,27 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
           </View>
 
           <View style={styles.editSection}>
+            <Text style={styles.editSectionTitle}>Tax</Text>
+            {taxSettings.enabled && taxSettings.allowPerOrderSelection ? (
+              <View style={styles.taxSwitchRow}>
+                <Text style={styles.taxSwitchLabel}>Apply Tax On This Order</Text>
+                <Switch
+                  value={editTaxEnabled}
+                  onValueChange={setEditTaxEnabled}
+                  trackColor={{ false: Colors.light.border, true: Colors.light.primary }}
+                  thumbColor="#fff"
+                />
+              </View>
+            ) : (
+              <Text style={styles.taxHelperText}>
+                {taxSettings.enabled
+                  ? 'Tax is always applied for each order from Tax Settings.'
+                  : 'Tax is globally disabled from Tax Settings.'}
+              </Text>
+            )}
+          </View>
+
+          <View style={styles.editSection}>
             <Text style={styles.editSectionTitle}>Order Notes</Text>
             <Input
               value={editNotes}
@@ -781,7 +825,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
               </View>
             )}
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Tax (9%)</Text>
+              <Text style={styles.summaryLabel}>{taxLabel}</Text>
               <Text style={styles.summaryValue}>R{editedTotals.tax.toFixed(2)}</Text>
             </View>
             <View style={[styles.summaryRow, styles.totalRow]}>
@@ -806,7 +850,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
                       style: 'destructive',
                       onPress: async () => {
                         try {
-                          await deleteOrder(id);
+                          await deleteOrder(order.id);
                           setShowEditModal(false);
                           router.back();
                         } catch (error) {
@@ -1746,6 +1790,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.light.text,
     paddingVertical: 14,
+  },
+  taxSwitchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  taxSwitchLabel: {
+    fontSize: 15,
+    color: Colors.light.text,
+    fontWeight: '500' as const,
+  },
+  taxHelperText: {
+    fontSize: 13,
+    color: Colors.light.textSecondary,
+    lineHeight: 18,
   },
   editSummary: {
     marginHorizontal: 20,

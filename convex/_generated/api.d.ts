@@ -17,6 +17,7 @@ import type * as debug_sku from "../debug_sku.js";
 import type * as debug_variations from "../debug_variations.js";
 import type * as ecwid from "../ecwid.js";
 import type * as ecwidCron from "../ecwidCron.js";
+import type * as ecwidMoq from "../ecwidMoq.js";
 import type * as files from "../files.js";
 import type * as fix_skus from "../fix_skus.js";
 import type * as orders from "../orders.js";
@@ -43,6 +44,7 @@ declare const fullApi: ApiFromModules<{
   debug_variations: typeof debug_variations;
   ecwid: typeof ecwid;
   ecwidCron: typeof ecwidCron;
+  ecwidMoq: typeof ecwidMoq;
   files: typeof files;
   fix_skus: typeof fix_skus;
   orders: typeof orders;

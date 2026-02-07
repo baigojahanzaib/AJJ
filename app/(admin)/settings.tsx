@@ -5,7 +5,7 @@ import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import {
   User, LogOut, Bell, Shield, HelpCircle,
-  ChevronRight, Palette, Database, FileText, Eye, RefreshCw
+  ChevronRight, Palette, Database, FileText, Eye, RefreshCw, Percent
 } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import Card from '@/components/Card';
@@ -86,6 +86,7 @@ export default function AdminSettings() {
       title: 'App',
       items: [
         { icon: RefreshCw, label: 'Ecwid Sync', onPress: () => router.push('/(admin)/ecwid-sync'), highlight: true },
+        { icon: Percent, label: 'Tax Settings', onPress: () => router.push('/(admin)/tax-settings'), highlight: true },
         { icon: Shield, label: 'Remote Config', onPress: () => router.push('/(admin)/remote-config'), highlight: true },
         { icon: Palette, label: 'Appearance', onPress: () => showAlert('Appearance', 'Theme settings coming soon') },
         { icon: FileText, label: 'Export Reports', onPress: () => router.push('/(admin)/export-reports') },

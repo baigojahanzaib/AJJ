@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, FlatList, TextInput, Modal } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, FlatList, TextInput, Modal, Switch } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -7,6 +7,7 @@ import { Minus, Plus, Trash2, ShoppingBag, CheckCircle, UserPlus, Search, X, Che
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useCart } from '@/contexts/CartContext';
+import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import Input from '@/components/Input';
@@ -38,7 +39,20 @@ type CustomerDraft = {
 export default function SalesCart() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { items, customerInfo, notes, subtotal, tax, total, itemCount, setCustomerInfo, setNotes, updateQuantity, updateItemPrice, removeItem, clearCart } = useCart();
+  const {
+    items,
+    customerInfo,
+    notes,
+    subtotal,
+    itemCount,
+    setCustomerInfo,
+    setNotes,
+    updateQuantity,
+    updateItemPrice,
+    removeItem,
+    clearCart
+  } = useCart();
+  const { taxSettings } = useRemoteConfig();
   const { addOrder, addCustomer, activeCustomers, resolveImageUri } = useData();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -67,6 +81,7 @@ export default function SalesCart() {
   const [editingPriceItemId, setEditingPriceItemId] = useState<string | null>(null);
   const [editPriceValue, setEditPriceValue] = useState('');
   const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
+  const [isOrderTaxEnabled, setIsOrderTaxEnabled] = useState(taxSettings.enabled);
 
   useEffect(() => {
     setQuantityDrafts(prev => {
@@ -77,6 +92,35 @@ export default function SalesCart() {
       return next;
     });
   }, [items]);
+
+  useEffect(() => {
+    if (!taxSettings.enabled) {
+      setIsOrderTaxEnabled(false);
+      return;
+    }
+    if (!taxSettings.allowPerOrderSelection) {
+      setIsOrderTaxEnabled(true);
+    }
+  }, [taxSettings.enabled, taxSettings.allowPerOrderSelection]);
+
+  const effectiveTaxRate = useMemo(() => {
+    if (!taxSettings.enabled) return 0;
+    return isOrderTaxEnabled ? taxSettings.rate : 0;
+  }, [isOrderTaxEnabled, taxSettings.enabled, taxSettings.rate]);
+
+  const effectiveTax = useMemo(() => {
+    return subtotal * effectiveTaxRate;
+  }, [subtotal, effectiveTaxRate]);
+
+  const effectiveTotal = useMemo(() => {
+    return subtotal + effectiveTax;
+  }, [subtotal, effectiveTax]);
+
+  const taxLabel = useMemo(() => {
+    if (!taxSettings.enabled || !isOrderTaxEnabled) return 'Tax (Disabled)';
+    const percentage = (taxSettings.rate * 100).toFixed(2).replace(/\.?0+$/, '');
+    return `Tax (${percentage}%)`;
+  }, [isOrderTaxEnabled, taxSettings.enabled, taxSettings.rate]);
 
   const showAlert = (config: Omit<AlertConfig, 'visible'>) => {
     setAlertConfig({ ...config, visible: true });
@@ -352,9 +396,9 @@ export default function SalesCart() {
         longitude: customerData.longitude,
         items: orderItems,
         subtotal,
-        tax,
+        tax: effectiveTax,
         discount: 0,
-        total,
+        total: effectiveTotal,
         status: 'pending',
         notes,
       });
@@ -718,13 +762,24 @@ export default function SalesCart() {
               <Text style={styles.confirmSummaryLabel}>Subtotal</Text>
               <Text style={styles.confirmSummaryValue}>R{subtotal.toFixed(2)}</Text>
             </View>
+            {taxSettings.enabled && taxSettings.allowPerOrderSelection && (
+              <View style={styles.taxToggleRow}>
+                <Text style={styles.taxToggleLabel}>Apply Tax On This Order</Text>
+                <Switch
+                  value={isOrderTaxEnabled}
+                  onValueChange={setIsOrderTaxEnabled}
+                  trackColor={{ false: Colors.light.border, true: Colors.light.primary }}
+                  thumbColor="#fff"
+                />
+              </View>
+            )}
             <View style={styles.confirmSummaryRow}>
-              <Text style={styles.confirmSummaryLabel}>Tax (9%)</Text>
-              <Text style={styles.confirmSummaryValue}>R{tax.toFixed(2)}</Text>
+              <Text style={styles.confirmSummaryLabel}>{taxLabel}</Text>
+              <Text style={styles.confirmSummaryValue}>R{effectiveTax.toFixed(2)}</Text>
             </View>
             <View style={[styles.confirmSummaryRow, styles.confirmTotalRow]}>
               <Text style={styles.confirmTotalLabel}>Total</Text>
-              <Text style={styles.confirmTotalValue}>R{total.toFixed(2)}</Text>
+              <Text style={styles.confirmTotalValue}>R{effectiveTotal.toFixed(2)}</Text>
             </View>
           </View>
         </View>
@@ -924,13 +979,24 @@ export default function SalesCart() {
                 <Text style={styles.summaryLabel}>Subtotal</Text>
                 <Text style={styles.summaryValue}>R{subtotal.toFixed(2)}</Text>
               </View>
+              {taxSettings.enabled && taxSettings.allowPerOrderSelection && (
+                <View style={styles.taxToggleRow}>
+                  <Text style={styles.taxToggleLabel}>Apply Tax On This Order</Text>
+                  <Switch
+                    value={isOrderTaxEnabled}
+                    onValueChange={setIsOrderTaxEnabled}
+                    trackColor={{ false: Colors.light.border, true: Colors.light.primary }}
+                    thumbColor="#fff"
+                  />
+                </View>
+              )}
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Tax (9%)</Text>
-                <Text style={styles.summaryValue}>R{tax.toFixed(2)}</Text>
+                <Text style={styles.summaryLabel}>{taxLabel}</Text>
+                <Text style={styles.summaryValue}>R{effectiveTax.toFixed(2)}</Text>
               </View>
               <View style={[styles.summaryRow, styles.totalRow]}>
                 <Text style={styles.totalLabel}>Total</Text>
-                <Text style={styles.totalValue}>R{total.toFixed(2)}</Text>
+                <Text style={styles.totalValue}>R{effectiveTotal.toFixed(2)}</Text>
               </View>
             </Card>
           </View>
@@ -1174,6 +1240,19 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontSize: 15,
     color: Colors.light.textSecondary,
+  },
+  taxToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.borderLight,
+  },
+  taxToggleLabel: {
+    fontSize: 15,
+    color: Colors.light.text,
+    fontWeight: '500' as const,
   },
   summaryValue: {
     fontSize: 15,

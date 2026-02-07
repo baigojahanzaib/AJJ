@@ -267,8 +267,13 @@ export const undoEdit = mutation({
 export const remove = mutation({
     args: { id: v.id("orders") },
     handler: async (ctx, args) => {
+        const existing = await ctx.db.get(args.id);
+        if (!existing) {
+            return { success: true, alreadyDeleted: true };
+        }
+
         await ctx.db.delete(args.id);
-        return { success: true };
+        return { success: true, alreadyDeleted: false };
     },
 });
 

@@ -2,6 +2,38 @@ import { action, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
+const toEcwidSelectedOptions = (selectedVariations: any[]): any[] => {
+    if (!Array.isArray(selectedVariations) || selectedVariations.length === 0) {
+        return [];
+    }
+
+    return selectedVariations
+        .map((selected: any) => {
+            const name = selected?.variationName?.trim();
+            const value = selected?.optionName?.trim();
+            if (!name || !value) {
+                return null;
+            }
+
+            const mapped: any = {
+                name,
+                type: "CHOICE",
+                value,
+            };
+
+            if (typeof selected?.priceModifier === "number" && Number.isFinite(selected.priceModifier)) {
+                mapped.selections = [{
+                    selectionTitle: value,
+                    selectionModifier: selected.priceModifier,
+                    selectionModifierType: "ABSOLUTE",
+                }];
+            }
+
+            return mapped;
+        })
+        .filter(Boolean);
+};
+
 export const run = action({
     args: {
         dryRun: v.optional(v.boolean()),
@@ -56,20 +88,29 @@ export const run = action({
             if (args.orderId && order._id !== args.orderId && order.orderNumber !== args.orderId) continue;
 
             // Construct updated items payload
-            const ecwidItems = order.items.map((item: any) => ({
-                name: item.productName,
-                price: item.unitPrice,
-                quantity: item.quantity,
-                sku: item.productSku,
-                // We don't necessarily need productId for the UPDATE to work if SKU/Name is there?
-                // Ecwid usually matches by ID if provided, or creates new? 
-                // If we strictly want to UPDATE the existing order items, we usually just provide the array.
-                // Ecwid Replace Strategy: "If you want to update the products in the order, you should pass the whole list of products in the 'items' field."
-                // We should try to preserve existing Ecwid Item IDs if possible? 
-                // We don't store Ecwid Item IDs in `order.items`.
-                // So we are forcing a rewrite of items. This might re-generate IDs on Ecwid side.
-                // This is acceptable for "Fixing SKUs".
-            }));
+            const ecwidItems = order.items.map((item: any) => {
+                const mapped: any = {
+                    name: item.productName,
+                    price: item.unitPrice,
+                    quantity: item.quantity,
+                    sku: item.productSku,
+                    // We don't necessarily need productId for the UPDATE to work if SKU/Name is there?
+                    // Ecwid usually matches by ID if provided, or creates new? 
+                    // If we strictly want to UPDATE the existing order items, we usually just provide the array.
+                    // Ecwid Replace Strategy: "If you want to update the products in the order, you should pass the whole list of products in the 'items' field."
+                    // We should try to preserve existing Ecwid Item IDs if possible? 
+                    // We don't store Ecwid Item IDs in `order.items`.
+                    // So we are forcing a rewrite of items. This might re-generate IDs on Ecwid side.
+                    // This is acceptable for "Fixing SKUs".
+                };
+
+                const selectedOptions = toEcwidSelectedOptions(item.selectedVariations);
+                if (selectedOptions.length > 0) {
+                    mapped.selectedOptions = selectedOptions;
+                }
+
+                return mapped;
+            });
 
             if (dryRun) {
                 results.push({

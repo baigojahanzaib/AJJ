@@ -1,5 +1,6 @@
 import { internalAction, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { extractEcwidMoq } from "./ecwidMoq";
 
 /**
  * Internal query to get settings for cron job
@@ -182,6 +183,7 @@ export const checkAndSync = internalAction({
                     }
 
                     const description = (prod.description || "").replace(/<[^>]*>/g, '').trim();
+                    const moq = extractEcwidMoq(prod);
 
                     await ctx.runMutation(internal.ecwid.upsertProduct, {
                         ecwidId: prod.id,
@@ -189,6 +191,7 @@ export const checkAndSync = internalAction({
                         description,
                         sku: prod.sku || `ECWID-${prod.id}`,
                         basePrice: prod.price || 0,
+                        compareAtPrice: prod.compareToPrice,
                         images,
                         categoryEcwidId: prod.categoryIds?.[0],
                         isActive: prod.enabled !== false,
@@ -206,6 +209,7 @@ export const checkAndSync = internalAction({
                         stock: prod.quantity || 0,
                         ribbon: prod.ribbon?.text,
                         ribbonColor: prod.ribbon?.color,
+                        moq,
                     });
                     productCount++;
                 }

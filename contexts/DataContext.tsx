@@ -250,7 +250,6 @@ export const [DataProvider, useData] = createContextHook(() => {
     const currentProdCache = seed?.productsCache ?? cachedProducts;
     const currentCatCache = seed?.categoriesCache ?? cachedCategories;
     const currentCustCache = seed?.customersCache ?? cachedCustomers;
-    const currentOrderCache = seed?.ordersCache ?? cachedOrders;
     let imageSyncSummary: { ready: number; total: number } | null = null;
 
     try {
@@ -333,12 +332,10 @@ export const [DataProvider, useData] = createContextHook(() => {
       // Orders endpoint is currently take(limit), so fetch a large window.
       const ordersRaw = await convex.query(api.orders.list, { limit: 5000 });
       if (ordersRaw) {
-        const orderMap = new Map(currentOrderCache.map((item) => [item.id, item]));
-        ordersRaw.map(mapOrder).forEach((item: Order) => orderMap.set(item.id, item));
-        const mergedOrders = Array.from(orderMap.values());
-        setCachedOrders(mergedOrders);
-        await saveOrders(mergedOrders);
-        console.log(`[Data] Order sync complete: ${mergedOrders.length}`);
+        const syncedOrders = ordersRaw.map(mapOrder);
+        setCachedOrders(syncedOrders);
+        await saveOrders(syncedOrders);
+        console.log(`[Data] Order sync complete: ${syncedOrders.length}`);
       }
 
       await setLastSyncTimestamp(new Date().toISOString());
@@ -362,7 +359,6 @@ export const [DataProvider, useData] = createContextHook(() => {
   }, [
     cachedCategories,
     cachedCustomers,
-    cachedOrders,
     cachedProducts,
     convex,
     isAuthenticated,
@@ -774,10 +770,43 @@ export const [DataProvider, useData] = createContextHook(() => {
       showToast('Cannot delete order while offline', 'error');
       return;
     }
-    await removeOrderMutation({ id: id as Id<"orders"> });
-    showToast('Order deleted successfully', 'success');
-    console.log('[Data] Order deleted:', id);
-  }, [removeOrderMutation, isOfflineMode, showToast]);
+
+    const removeOrderFromCache = async () => {
+      const nextOrders = cachedOrders.filter(order => order.id !== id);
+      setCachedOrders(nextOrders);
+      await saveOrders(nextOrders);
+    };
+
+    try {
+      const orderId = id as Id<"orders">;
+      const existingOrder = await convex.query(api.orders.getById, { id: orderId });
+
+      if (!existingOrder) {
+        await removeOrderFromCache();
+        showToast('Order deleted successfully', 'success');
+        console.log('[Data] Order already deleted on server:', id);
+        return;
+      }
+
+      await removeOrderMutation({ id: orderId });
+      await removeOrderFromCache();
+
+      showToast('Order deleted successfully', 'success');
+      console.log('[Data] Order deleted:', id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      if (message.includes('Delete on nonexistent document ID')) {
+        await removeOrderFromCache();
+        showToast('Order deleted successfully', 'success');
+        console.warn('[Data] Order was already deleted on server:', id);
+        return;
+      }
+
+      console.error('[Data] Failed to delete order:', error);
+      showToast('Failed to delete order', 'error');
+      throw error;
+    }
+  }, [cachedOrders, convex, removeOrderMutation, isOfflineMode, showToast]);
 
   const syncOrderToEcwid = useCallback(async (id: string) => {
     if (isOfflineMode) {

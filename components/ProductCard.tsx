@@ -1,4 +1,4 @@
-import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { Image } from 'expo-image';
 import Colors from '@/constants/colors';
 import { Product } from '@/types';
@@ -16,6 +16,9 @@ interface ProductCardProps {
 export default function ProductCard({ product, onPress, variant = 'grid' }: ProductCardProps) {
   const { items } = useCart();
   const { resolveImageUri } = useData();
+  const { width, height } = useWindowDimensions();
+
+  const isTablet = Math.min(width, height) >= 600;
 
   const cartQuantity = items
     .filter(item => item.product.id === product.id)
@@ -63,8 +66,12 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
 
   if (variant === 'list') {
     return (
-      <TouchableOpacity style={styles.listContainer} onPress={onPress} activeOpacity={0.7}>
-        <View style={styles.listImageWrapper}>
+      <TouchableOpacity
+        style={[styles.listContainer, isTablet && styles.listContainerTablet]}
+        onPress={onPress}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.listImageWrapper, isTablet && styles.listImageWrapperTablet]}>
           <Image
             source={{ uri: productImageUri }}
             style={styles.listImage}
@@ -244,6 +251,9 @@ const styles = StyleSheet.create({
     elevation: 3,
     height: 110, // Fixed height to prevent stretching
   },
+  listContainerTablet: {
+    height: 165, // 1.5x larger image area for tablet list view
+  },
   listImageWrapper: {
     width: 110, // Increased as requested
     height: 110, // Matching parent height
@@ -251,6 +261,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 8,
+  },
+  listImageWrapperTablet: {
+    width: 165,
+    height: 165,
   },
   listImage: {
     width: '100%',

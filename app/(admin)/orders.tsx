@@ -1,7 +1,9 @@
-import { useState } from 'react';
-import { StyleSheet, Text, View, FlatList, TouchableOpacity } from 'react-native';
+import { useState, useCallback, useRef } from 'react';
+import { StyleSheet, Text, View, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { Trash2 } from 'lucide-react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useData } from '@/contexts/DataContext';
 import * as Haptics from 'expo-haptics';
 import SearchBar from '@/components/SearchBar';
@@ -21,9 +23,11 @@ const statusFilters: { id: OrderStatus | 'all'; label: string }[] = [
 
 export default function AdminOrders() {
   const router = useRouter();
-  const { orders, updateOrderStatus } = useData();
+  const { orders, updateOrderStatus, deleteOrder } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | 'all'>('all');
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const swipeableRefs = useRef<Record<string, Swipeable | null>>({});
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch =
@@ -51,6 +55,58 @@ export default function AdminOrders() {
     updateOrderStatus(orderId, newStatus);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
+
+  const closeAllSwipeables = useCallback((exceptOrderId?: string) => {
+    Object.entries(swipeableRefs.current).forEach(([orderId, swipeable]) => {
+      if (orderId !== exceptOrderId) {
+        swipeable?.close();
+      }
+    });
+  }, []);
+
+  const closeSwipeable = useCallback((orderId: string) => {
+    swipeableRefs.current[orderId]?.close();
+  }, []);
+
+  const handleDeleteOrder = useCallback((orderId: string) => {
+    closeSwipeable(orderId);
+    Alert.alert(
+      'Delete Order',
+      'Are you sure you want to delete this order? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setDeletingOrderId(orderId);
+              await deleteOrder(orderId);
+            } catch (error) {
+              console.error('[AdminOrders] Delete failed:', error);
+            } finally {
+              setDeletingOrderId((current) => (current === orderId ? null : current));
+            }
+          },
+        },
+      ]
+    );
+  }, [closeSwipeable, deleteOrder]);
+
+  const renderDeleteAction = useCallback((orderId: string) => {
+    const isDeleting = deletingOrderId === orderId;
+    return (
+      <TouchableOpacity
+        style={[styles.swipeDeleteAction, isDeleting && styles.swipeDeleteActionDisabled]}
+        onPress={() => handleDeleteOrder(orderId)}
+        activeOpacity={0.8}
+        disabled={isDeleting}
+      >
+        <Trash2 size={18} color="#fff" />
+        <Text style={styles.swipeDeleteText}>Delete</Text>
+      </TouchableOpacity>
+    );
+  }, [deletingOrderId, handleDeleteOrder]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -101,12 +157,25 @@ export default function AdminOrders() {
         contentContainerStyle={styles.orderList}
         renderItem={({ item }) => (
           <View style={styles.orderItem}>
-            <OrderCard
-              order={item}
-              onPress={() => handleOrderPress(item.id)}
-              showSalesRep
-              onStatusChange={handleStatusChange}
-            />
+            <Swipeable
+              ref={(ref) => {
+                swipeableRefs.current[item.id] = ref;
+              }}
+              renderLeftActions={() => renderDeleteAction(item.id)}
+              renderRightActions={() => renderDeleteAction(item.id)}
+              leftThreshold={36}
+              rightThreshold={36}
+              overshootLeft={false}
+              overshootRight={false}
+              onSwipeableWillOpen={() => closeAllSwipeables(item.id)}
+            >
+              <OrderCard
+                order={item}
+                onPress={() => handleOrderPress(item.id)}
+                showSalesRep
+                onStatusChange={handleStatusChange}
+              />
+            </Swipeable>
           </View>
         )}
         showsVerticalScrollIndicator={false}
@@ -176,6 +245,23 @@ const styles = StyleSheet.create({
   },
   orderItem: {
     marginBottom: 12,
+  },
+  swipeDeleteAction: {
+    width: 92,
+    marginVertical: 2,
+    borderRadius: 16,
+    backgroundColor: Colors.light.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  swipeDeleteActionDisabled: {
+    opacity: 0.7,
+  },
+  swipeDeleteText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: '#fff',
   },
   emptyState: {
     flex: 1,

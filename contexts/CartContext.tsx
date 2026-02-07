@@ -1,8 +1,10 @@
 import { useState, useCallback, useMemo } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import { CartItem, Product, SelectedVariation } from '@/types';
+import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
 
 export const [CartProvider, useCart] = createContextHook(() => {
+  const { taxSettings } = useRemoteConfig();
   const [items, setItems] = useState<CartItem[]>([]);
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
@@ -135,8 +137,9 @@ export const [CartProvider, useCart] = createContextHook(() => {
   }, [items]);
 
   const tax = useMemo(() => {
-    return subtotal * 0.09;
-  }, [subtotal]);
+    if (!taxSettings.enabled) return 0;
+    return subtotal * taxSettings.rate;
+  }, [subtotal, taxSettings.enabled, taxSettings.rate]);
 
   const total = useMemo(() => {
     return subtotal + tax;
@@ -153,6 +156,8 @@ export const [CartProvider, useCart] = createContextHook(() => {
     subtotal,
     tax,
     total,
+    isTaxEnabled: taxSettings.enabled,
+    taxRate: taxSettings.rate,
     itemCount,
     setCustomerInfo,
     setNotes,

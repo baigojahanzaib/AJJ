@@ -23,6 +23,12 @@ export interface UpdateSettings {
     updateMessage: string;
 }
 
+export interface TaxSettings {
+    enabled: boolean;
+    rate: number;
+    allowPerOrderSelection: boolean;
+}
+
 export interface AppAnnouncement {
     enabled: boolean;
     title: string;
@@ -43,6 +49,9 @@ interface RemoteConfigContextType {
     // Update settings
     updateSettings: UpdateSettings;
 
+    // Tax settings
+    taxSettings: TaxSettings;
+
     // Announcements
     announcement: AppAnnouncement | null;
 
@@ -53,6 +62,7 @@ interface RemoteConfigContextType {
     setFeatureFlag: (flag: string, enabled: boolean) => Promise<void>;
     setMaintenanceMode: (enabled: boolean, message?: string) => Promise<void>;
     setAnnouncement: (announcement: Partial<AppAnnouncement>) => Promise<void>;
+    setTaxSettings: (settings: Partial<TaxSettings>) => Promise<void>;
 }
 
 const defaultFeatureFlags: FeatureFlags = {
@@ -74,6 +84,12 @@ const defaultUpdateSettings: UpdateSettings = {
     updateMessage: 'A new version is available!',
 };
 
+const defaultTaxSettings: TaxSettings = {
+    enabled: true,
+    rate: 0.15,
+    allowPerOrderSelection: true,
+};
+
 const RemoteConfigContext = createContext<RemoteConfigContextType | undefined>(undefined);
 
 interface RemoteConfigProviderProps {
@@ -86,6 +102,7 @@ export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderP
     const featureFlagsData = useQuery(api.appConfig.getFeatureFlags);
     const maintenanceData = useQuery(api.appConfig.getMaintenanceStatus);
     const updateSettingsData = useQuery(api.appConfig.getUpdateSettings);
+    const taxSettingsData = useQuery(api.appConfig.getConfig, { key: 'tax_settings' });
     const announcementData = useQuery(api.appConfig.getConfig, { key: 'app_announcement' });
 
     // Mutations
@@ -113,6 +130,12 @@ export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderP
         ...(updateSettingsData || {}),
     };
 
+    // Parse tax settings
+    const taxSettings: TaxSettings = {
+        ...defaultTaxSettings,
+        ...(taxSettingsData || {}),
+    };
+
     // Parse announcement
     const announcement: AppAnnouncement | null = announcementData?.enabled
         ? announcementData as AppAnnouncement
@@ -121,7 +144,8 @@ export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderP
     // Loading state
     const isLoading = featureFlagsData === undefined ||
         maintenanceData === undefined ||
-        updateSettingsData === undefined;
+        updateSettingsData === undefined ||
+        taxSettingsData === undefined;
 
     // Helper functions
     const isFeatureEnabled = (feature: string): boolean => {
@@ -165,17 +189,27 @@ export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderP
         });
     };
 
+    const setTaxSettings = async (newSettings: Partial<TaxSettings>) => {
+        await setConfigMutation({
+            key: 'tax_settings',
+            value: { ...taxSettings, ...newSettings },
+            updatedBy: userId,
+        });
+    };
+
     const value: RemoteConfigContextType = {
         featureFlags,
         isFeatureEnabled,
         maintenanceStatus,
         isInMaintenance,
         updateSettings,
+        taxSettings,
         announcement,
         isLoading,
         setFeatureFlag,
         setMaintenanceMode,
         setAnnouncement,
+        setTaxSettings,
     };
 
     return (

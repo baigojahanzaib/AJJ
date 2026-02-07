@@ -150,6 +150,15 @@ export const seedDefaultConfigs = mutation({
                 description: "App update prompts and requirements",
             },
             {
+                key: "tax_settings",
+                value: {
+                    enabled: true,
+                    rate: 0.15,
+                    allowPerOrderSelection: true,
+                },
+                description: "Controls whether order tax is calculated at checkout",
+            },
+            {
                 key: "app_announcement",
                 value: {
                     enabled: false,

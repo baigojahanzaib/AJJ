@@ -3,6 +3,7 @@ import { query, mutation, action, internalMutation, internalQuery } from "./_gen
 import { v } from "convex/values";
 import { internal, api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
+import { extractEcwidMoq } from "./ecwidMoq";
 
 export const inspectProduct = query({
     args: { sku: v.string() },
@@ -719,19 +720,7 @@ export const fullSync = action({
                     // Strip HTML from description
                     const description = (prod.description || "").replace(/<[^>]*>/g, '').trim();
 
-                    // Extract MOQ from attributes
-                    let moq = undefined;
-                    if (prod.attributes && Array.isArray(prod.attributes)) {
-                        const moqAttr = prod.attributes.find((attr: any) =>
-                            attr.name && attr.name.toLowerCase() === 'moq'
-                        );
-                        if (moqAttr && moqAttr.value) {
-                            const parsedMoq = parseFloat(moqAttr.value);
-                            if (!isNaN(parsedMoq) && parsedMoq > 0) {
-                                moq = parsedMoq;
-                            }
-                        }
-                    }
+                    const moq = extractEcwidMoq(prod);
 
                     await ctx.runMutation(internal.ecwid.upsertProduct, {
                         ecwidId: prod.id,
@@ -974,6 +963,72 @@ export const syncCustomers = action({
 /**
  * Sync an order to Ecwid
  */
+const normalizeOptionText = (value: string | undefined): string => (value ?? "").trim().toLowerCase();
+
+const findMatchingCombination = (product: any, selectedVariations: any[]): any | undefined => {
+    if (!product?.combinations || !selectedVariations.length) {
+        return undefined;
+    }
+
+    const selectedByName = new Map<string, string>();
+    for (const selected of selectedVariations) {
+        const optionName = normalizeOptionText(selected?.variationName);
+        const optionValue = normalizeOptionText(selected?.optionName);
+        if (optionName && optionValue) {
+            selectedByName.set(optionName, optionValue);
+        }
+    }
+
+    if (selectedByName.size === 0) {
+        return undefined;
+    }
+
+    return (product.combinations as any[]).find((combo: any) => {
+        const comboOptions = Array.isArray(combo?.options) ? combo.options : [];
+        if (!comboOptions.length || comboOptions.length !== selectedByName.size) {
+            return false;
+        }
+
+        return comboOptions.every((comboOption: any) => {
+            const comboName = normalizeOptionText(comboOption?.name);
+            const comboValue = normalizeOptionText(comboOption?.value);
+            return comboName && comboValue && selectedByName.get(comboName) === comboValue;
+        });
+    });
+};
+
+const toEcwidSelectedOptions = (selectedVariations: any[]): any[] => {
+    if (!selectedVariations.length) {
+        return [];
+    }
+
+    return selectedVariations
+        .map((selected: any) => {
+            const name = selected?.variationName?.trim();
+            const value = selected?.optionName?.trim();
+            if (!name || !value) {
+                return null;
+            }
+
+            const mapped: any = {
+                name,
+                type: "CHOICE",
+                value,
+            };
+
+            if (typeof selected?.priceModifier === "number" && Number.isFinite(selected.priceModifier)) {
+                mapped.selections = [{
+                    selectionTitle: value,
+                    selectionModifier: selected.priceModifier,
+                    selectionModifierType: "ABSOLUTE",
+                }];
+            }
+
+            return mapped;
+        })
+        .filter(Boolean);
+};
+
 // Refactored handler to be reusable
 const syncOrderToEcwidHandler = async (ctx: any, args: { orderId: any }) => {
     // Get settings
@@ -1000,6 +1055,9 @@ const syncOrderToEcwidHandler = async (ctx: any, args: { orderId: any }) => {
         // Try to find the product to get its Ecwid ID
         let productId: number | undefined;
         let sku = item.productSku;
+        let combinationId: number | undefined;
+        const selectedVariations = Array.isArray(item.selectedVariations) ? item.selectedVariations : [];
+        const selectedOptions = toEcwidSelectedOptions(selectedVariations);
 
         if (item.productId) {
             const product = await ctx.runQuery(internal.ecwid.getProductInternal, {
@@ -1008,31 +1066,38 @@ const syncOrderToEcwidHandler = async (ctx: any, args: { orderId: any }) => {
             if (product && product.ecwidId) {
                 productId = product.ecwidId;
                 // Find the correct variation SKU from combinations based on selectedVariations
-                if (product.combinations && item.selectedVariations?.length > 0) {
-                    const match = (product.combinations as any[]).find((combo: any) =>
-                        combo.options.every((comboOption: any) => {
-                            const comboOptName = comboOption.name?.trim().toLowerCase();
-                            const comboOptValue = comboOption.value?.trim().toLowerCase();
-                            return item.selectedVariations.some((selected: any) =>
-                                selected.variationName?.trim().toLowerCase() === comboOptName &&
-                                selected.optionName?.trim().toLowerCase() === comboOptValue
-                            );
-                        })
-                    );
+                if (product.combinations && selectedVariations.length > 0) {
+                    const match = findMatchingCombination(product, selectedVariations);
                     if (match?.sku) {
                         sku = match.sku;
+                    }
+                    if (match?.id !== undefined && match?.id !== null) {
+                        const parsedCombinationId = typeof match.id === "number" ? match.id : Number(match.id);
+                        if (Number.isFinite(parsedCombinationId)) {
+                            combinationId = parsedCombinationId;
+                        }
                     }
                 }
             }
         }
 
-        return {
+        const ecwidItem: any = {
             name: item.productName,
             price: item.unitPrice,
             quantity: item.quantity,
             sku: sku,
             productId: productId,
         };
+
+        if (selectedOptions.length > 0) {
+            ecwidItem.selectedOptions = selectedOptions;
+        }
+
+        if (combinationId !== undefined) {
+            ecwidItem.combinationId = combinationId;
+        }
+
+        return ecwidItem;
     }));
 
     // Construct Ecwid Order object
@@ -1588,7 +1653,7 @@ export const syncProduct = action({
             stock: prod.quantity || 0,
             ribbon: prod.ribbon?.text,
             ribbonColor: prod.ribbon?.color,
-            moq: undefined
+            moq: extractEcwidMoq(prod)
         });
 
         return { success: true, name: prod.name };

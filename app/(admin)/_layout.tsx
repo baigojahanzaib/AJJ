@@ -91,6 +91,12 @@ export default function AdminTabLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="tax-settings"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
