@@ -1,6 +1,7 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../convex/_generated/api';
+import { useAuth } from './AuthContext';
 
 // Types for remote configuration
 export interface FeatureFlags {
@@ -105,6 +106,11 @@ export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderP
     const taxSettingsData = useQuery(api.appConfig.getConfig, { key: 'tax_settings' });
     const announcementData = useQuery(api.appConfig.getConfig, { key: 'app_announcement' });
 
+    // Get auth state to check for admin role.
+    // Keep this defensive so a provider-order mistake doesn't crash startup.
+    const auth = useAuth();
+    const user = auth?.user;
+
     // Mutations
     const setConfigMutation = useMutation(api.appConfig.setConfig);
 
@@ -122,7 +128,8 @@ export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderP
 
     // Check if user is allowed during maintenance
     const isUserAllowed = userId && maintenanceStatus.allowedUserIds?.includes(userId);
-    const isInMaintenance = maintenanceStatus.enabled && !isUserAllowed;
+    const isAdmin = user?.role === 'admin';
+    const isInMaintenance = maintenanceStatus.enabled && !isUserAllowed && !isAdmin;
 
     // Parse update settings
     const updateSettings: UpdateSettings = {

@@ -1,3 +1,4 @@
+import "@stardazed/streams-text-encoding";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import { trpc, trpcClient } from "@/lib/trpc";
@@ -13,13 +14,12 @@ import { OfflineProvider } from "@/contexts/OfflineContext";
 import { OfflineBanner } from "@/components/OfflineBanner";
 import { RemoteConfigProvider } from "@/contexts/RemoteConfigContext";
 import { UpdateHandler } from "@/components/UpdateHandler";
+import { useProtectedRoute } from "@/hooks/useProtectedRoute";
+import { NotificationProvider } from "@/contexts/NotificationContext";
 
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
-
-import { useProtectedRoute } from "@/hooks/useProtectedRoute";
-import { NotificationProvider } from "@/contexts/NotificationContext";
 
 function RootLayoutNav() {
   useProtectedRoute();
@@ -44,10 +44,10 @@ export default function RootLayout() {
       <trpc.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
-            <RemoteConfigProvider>
-              <UpdateHandler>
-                <NotificationProvider>
-                  <AuthProvider>
+            <AuthProvider>
+              <RemoteConfigProvider>
+                <UpdateHandler>
+                  <NotificationProvider>
                     <OfflineProvider>
                       <DataProvider>
                         <CartProvider>
@@ -56,10 +56,10 @@ export default function RootLayout() {
                         </CartProvider>
                       </DataProvider>
                     </OfflineProvider>
-                  </AuthProvider>
-                </NotificationProvider>
-              </UpdateHandler>
-            </RemoteConfigProvider>
+                  </NotificationProvider>
+                </UpdateHandler>
+              </RemoteConfigProvider>
+            </AuthProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>
       </trpc.Provider>
