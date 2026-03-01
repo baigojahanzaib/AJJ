@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { StyleSheet, Text, View, FlatList, TouchableOpacity, Modal, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { ArrowUpDown, Check, Grid, List, RefreshCw } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -29,6 +30,21 @@ export default function SalesCatalog() {
 
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  const flatListRef = useRef<FlatList>(null);
+  const scrollOffsetRef = useRef(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      const timeout = setTimeout(() => {
+        flatListRef.current?.scrollToOffset({
+          offset: scrollOffsetRef.current,
+          animated: false,
+        });
+      }, 50);
+      return () => clearTimeout(timeout);
+    }, [])
+  );
 
   // Extract unique ribbons/promotion tags from products
   // Combined filter items (All + Ribbons + Categories)
@@ -192,6 +208,7 @@ export default function SalesCatalog() {
       </Modal>
 
       <FlatList
+        ref={flatListRef}
         data={filteredProducts}
         keyExtractor={(item) => item.id}
         numColumns={viewMode === 'grid' ? 2 : 1}
@@ -210,6 +227,8 @@ export default function SalesCatalog() {
           )
         )}
         showsVerticalScrollIndicator={false}
+        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No products found</Text>

@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { StyleSheet, Text, View, FlatList, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Plus, Grid, List, FileUp, Package } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { useData } from '@/contexts/DataContext';
@@ -25,6 +26,21 @@ export default function AdminProducts() {
     buttons: [] as { text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }[],
   });
   const [showAddOptions, setShowAddOptions] = useState(false);
+
+  const flatListRef = useRef<FlatList>(null);
+  const scrollOffsetRef = useRef(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      const timeout = setTimeout(() => {
+        flatListRef.current?.scrollToOffset({
+          offset: scrollOffsetRef.current,
+          animated: false,
+        });
+      }, 50);
+      return () => clearTimeout(timeout);
+    }, [])
+  );
 
   const filteredProducts = products.filter(product => {
     const matchesSearch = product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -154,6 +170,7 @@ export default function AdminProducts() {
       </View>
 
       <FlatList
+        ref={flatListRef}
         data={filteredProducts}
         keyExtractor={(item) => item.id}
         numColumns={viewMode === 'grid' ? 2 : 1}
@@ -161,6 +178,8 @@ export default function AdminProducts() {
         contentContainerStyle={styles.productList}
         renderItem={renderProduct}
         showsVerticalScrollIndicator={false}
+        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No products found</Text>

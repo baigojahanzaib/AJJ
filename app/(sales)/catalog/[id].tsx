@@ -150,11 +150,20 @@ export default function ProductDetailPage() {
 
     const getVariationQuantityInCart = (variationId: string, optionId: string) => {
         if (!product) return 0;
+        // Build the full selection set we'd have if this option were chosen
+        const hypotheticalSelections = { ...selectedVariations, [variationId]: optionId };
         return items
-            .filter(item =>
-                item.product.id === product.id &&
-                item.selectedVariations.some(v => v.variationId === variationId && v.optionId === optionId)
-            )
+            .filter(item => {
+                if (item.product.id !== product.id) return false;
+                // The item must match ALL variations in the hypothetical selection
+                return product.variations.every(variation => {
+                    const expectedOptionId = hypotheticalSelections[variation.id];
+                    if (!expectedOptionId) return true; // variation not selected yet, skip
+                    return item.selectedVariations.some(
+                        v => v.variationId === variation.id && v.optionId === expectedOptionId
+                    );
+                });
+            })
             .reduce((sum, item) => sum + item.quantity, 0);
     };
 

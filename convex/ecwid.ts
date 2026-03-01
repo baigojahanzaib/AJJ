@@ -359,6 +359,7 @@ export const upsertProduct = internalMutation({
                 name: v.string(),
                 priceModifier: v.number(),
                 sku: v.string(),
+                moq: v.optional(v.number()),
                 stock: v.number(),
                 image: v.optional(v.string()),
             })),
@@ -448,6 +449,32 @@ export const upsertProduct = internalMutation({
                 return existing._id;
             }
 
+            // Preserve per-variation MOQ values set locally (e.g. via batchUpdateMOQ).
+            // Ecwid doesn't store our custom MOQ data, so merge existing MOQ back in by SKU.
+            const existingOptsBySkuMap = new Map<string, number>();
+            if (existing.variations) {
+                for (const v of (existing.variations as any[])) {
+                    for (const o of (v.options as any[])) {
+                        if (o.sku && o.moq !== undefined) {
+                            existingOptsBySkuMap.set(o.sku, o.moq);
+                        }
+                    }
+                }
+            }
+
+            const mergedVariations = args.variations.map((incomingVar: any) => ({
+                ...incomingVar,
+                options: incomingVar.options.map((incomingOpt: any) => {
+                    const existingMoq = existingOptsBySkuMap.get(incomingOpt.sku);
+                    return existingMoq !== undefined
+                        ? { ...incomingOpt, moq: existingMoq }
+                        : incomingOpt;
+                }),
+            }));
+
+            // Preserve product-level MOQ if Ecwid doesn't provide one
+            const resolvedMoq = args.moq !== undefined ? args.moq : existing.moq;
+
             const updates: any = {
                 name: args.name,
                 description: args.description,
@@ -457,12 +484,12 @@ export const upsertProduct = internalMutation({
                 images: args.images,
                 categoryId,
                 isActive: args.isActive,
-                variations: args.variations,
+                variations: mergedVariations,
                 combinations: args.combinations,
                 stock: args.stock,
                 ribbon: args.ribbon,
                 ribbonColor: args.ribbonColor,
-                moq: args.moq,
+                moq: resolvedMoq,
                 updatedAt: new Date().toISOString(),
             };
 
@@ -755,11 +782,6 @@ export const fullSync = action({
                 if (offset + prodData.count >= prodData.total) break;
                 offset += limit;
             }
-
-            // Cleanup stale data
-            console.log(`[Sync] Cleaning up data older than ${syncStartTime}`);
-            await ctx.runMutation(internal.ecwid.deleteStaleCategories, { syncedBefore: syncStartTime });
-            await ctx.runMutation(internal.ecwid.deleteStaleProducts, { syncedBefore: syncStartTime });
 
             // =========================================
             // Fetch and sync customers

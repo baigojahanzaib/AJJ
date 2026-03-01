@@ -3,7 +3,7 @@ import { StyleSheet, Text, View, ScrollView, TouchableOpacity, TextInput, Switch
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
-    ArrowLeft, RefreshCw, Check, AlertCircle, Clock, Package, Folder, Settings2, Zap
+    ArrowLeft, RefreshCw, Check, AlertCircle, Clock, Package, Folder, Settings2, Zap, Trash2
 } from 'lucide-react-native';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../convex/_generated/api';
@@ -29,6 +29,7 @@ export default function EcwidSync() {
     const [isSaving, setIsSaving] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isForceResyncing, setIsForceResyncing] = useState(false);
 
     const [alertConfig, setAlertConfig] = useState({
         visible: false,
@@ -145,6 +146,43 @@ export default function EcwidSync() {
         } finally {
             setIsSyncing(false);
         }
+    };
+
+    const handleForceResync = async () => {
+        if (!syncStatus?.configured) {
+            showAlert('Not Configured', 'Please configure your Ecwid settings first.', 'warning');
+            return;
+        }
+
+        // Show confirmation dialog
+        setAlertConfig({
+            visible: true,
+            title: 'Force Clean Resync',
+            message: 'This will fetch ALL products from Ecwid and remove any products in your database that no longer exist in Ecwid. This will fix stale/old products.\n\nContinue?',
+            type: 'warning',
+            buttons: [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Resync',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setIsForceResyncing(true);
+                        try {
+                            const result = await fullSyncAction({ force: true });
+                            showAlert(
+                                'Clean Resync Complete',
+                                `Successfully synced ${result.categoryCount} categories and ${result.productCount} products. Old products removed.`,
+                                'success'
+                            );
+                        } catch (error) {
+                            showAlert('Resync Failed', `${error}`, 'error');
+                        } finally {
+                            setIsForceResyncing(false);
+                        }
+                    },
+                },
+            ],
+        });
     };
 
 
@@ -264,23 +302,45 @@ export default function EcwidSync() {
                         </View>
                     )}
 
-                    <TouchableOpacity
-                        style={[
-                            styles.syncButton,
-                            (!syncStatus?.configured || isSyncing) && styles.syncButtonDisabled
-                        ]}
-                        onPress={handleSync}
-                        disabled={!syncStatus?.configured || isSyncing}
-                    >
-                        {isSyncing ? (
-                            <ActivityIndicator color={Colors.light.primaryForeground} />
-                        ) : (
-                            <>
-                                <RefreshCw size={20} color={Colors.light.primaryForeground} />
-                                <Text style={styles.syncButtonText}>Sync Now</Text>
-                            </>
-                        )}
-                    </TouchableOpacity>
+                    <View style={styles.syncButtonRow}>
+                        <TouchableOpacity
+                            style={[
+                                styles.syncButton,
+                                styles.syncButtonFlex,
+                                (!syncStatus?.configured || isSyncing || isForceResyncing) && styles.syncButtonDisabled
+                            ]}
+                            onPress={handleSync}
+                            disabled={!syncStatus?.configured || isSyncing || isForceResyncing}
+                        >
+                            {isSyncing ? (
+                                <ActivityIndicator color={Colors.light.primaryForeground} />
+                            ) : (
+                                <>
+                                    <RefreshCw size={18} color={Colors.light.primaryForeground} />
+                                    <Text style={styles.syncButtonText}>Sync Now</Text>
+                                </>
+                            )}
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={[
+                                styles.forceResyncButton,
+                                styles.syncButtonFlex,
+                                (!syncStatus?.configured || isSyncing || isForceResyncing) && styles.syncButtonDisabled
+                            ]}
+                            onPress={handleForceResync}
+                            disabled={!syncStatus?.configured || isSyncing || isForceResyncing}
+                        >
+                            {isForceResyncing ? (
+                                <ActivityIndicator color={Colors.light.primaryForeground} />
+                            ) : (
+                                <>
+                                    <Trash2 size={18} color={Colors.light.primaryForeground} />
+                                    <Text style={styles.syncButtonText}>Clean Resync</Text>
+                                </>
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 </Card>
 
                 {/* Configuration Card */}
@@ -496,6 +556,13 @@ const styles = StyleSheet.create({
         fontSize: 13,
         lineHeight: 18,
     },
+    syncButtonRow: {
+        flexDirection: 'row',
+        gap: 10,
+    },
+    syncButtonFlex: {
+        flex: 1,
+    },
     syncButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -503,13 +570,22 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.light.primary,
         paddingVertical: 14,
         borderRadius: 12,
-        gap: 8,
+        gap: 6,
+    },
+    forceResyncButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#e05252',
+        paddingVertical: 14,
+        borderRadius: 12,
+        gap: 6,
     },
     syncButtonDisabled: {
-        backgroundColor: Colors.light.textTertiary,
+        opacity: 0.5,
     },
     syncButtonText: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '600',
         color: Colors.light.primaryForeground,
     },
