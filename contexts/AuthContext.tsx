@@ -105,9 +105,20 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       return { success: true };
     } catch (error) {
       console.error('[Auth] Login error:', error);
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      // Check if it's a network/offline error specifically
+      const isOfflineError =
+        message.includes('network') ||
+        message.includes('fetch') ||
+        message.includes('connect') ||
+        message.includes('offline') ||
+        message.includes('NetworkError') ||
+        message.includes('Failed to fetch');
       return {
         success: false,
-        error: 'Unable to sign in while offline. Connect once, then continue offline.',
+        error: isOfflineError
+          ? 'Unable to sign in while offline. Connect once, then continue offline.'
+          : `Sign in failed: ${message || 'Please try again.'}`,
       };
     }
   }, [convex, persistAuthenticatedUser]);

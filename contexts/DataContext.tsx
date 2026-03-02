@@ -254,7 +254,9 @@ export const [DataProvider, useData] = createContextHook(() => {
 
     try {
       // Fetch all active products with pagination.
-      const productMap = new Map(currentProdCache.map((item) => [item.id, item]));
+      // Use a FRESH map (not seeded from cache) so that products deleted/deactivated
+      // in Ecwid/Convex are properly evicted from the local cache on every sync.
+      const productMap = new Map<string, Product>();
       let productCursor: string | null = null;
       let productDone = false;
       let productPages = 0;
@@ -668,10 +670,10 @@ export const [DataProvider, useData] = createContextHook(() => {
       const nextOrders = cachedOrders.map(order => (
         order.id === id
           ? {
-              ...order,
-              status,
-              updatedAt: now,
-            }
+            ...order,
+            status,
+            updatedAt: now,
+          }
           : order
       ));
 
