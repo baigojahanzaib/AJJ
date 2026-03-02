@@ -59,6 +59,7 @@ export default defineSchema({
         avatar: v.optional(v.string()),
         isActive: v.boolean(),
         createdAt: v.string(),
+        companyId: v.optional(v.string()),
     }).index("by_email", ["email"]),
 
     categories: defineTable({
@@ -68,6 +69,7 @@ export default defineSchema({
         parentId: v.optional(v.string()),
         isActive: v.boolean(),
         createdAt: v.string(),
+        companyId: v.optional(v.string()),
         // Ecwid integration
         ecwidId: v.optional(v.number()),
         lastSyncedAt: v.optional(v.string()), // Added for cleanup
@@ -99,6 +101,7 @@ export default defineSchema({
         ribbon: v.optional(v.string()),
         ribbonColor: v.optional(v.string()),
         createdAt: v.string(),
+        companyId: v.optional(v.string()),
         // Ecwid integration
         ecwidId: v.optional(v.number()),
         updatedAt: v.optional(v.string()),
@@ -121,6 +124,7 @@ export default defineSchema({
         company: v.optional(v.string()),
         isActive: v.boolean(),
         createdAt: v.string(),
+        companyId: v.optional(v.string()),
         ecwidId: v.optional(v.number()),
         lastSyncedAt: v.optional(v.string()), // Added for cleanup
     }).index("by_email", ["email"])
@@ -157,6 +161,7 @@ export default defineSchema({
         editLog: v.optional(v.array(orderEditLogValidator)),
         ecwidOrderId: v.optional(v.union(v.string(), v.number())),
         lastSyncedAt: v.optional(v.string()),
+        companyId: v.optional(v.string()),
     })
         .index("by_salesRep", ["salesRepId"])
         .index("by_status", ["status"])
@@ -179,6 +184,7 @@ export default defineSchema({
         lastSyncMessage: v.optional(v.string()),
         lastSyncProductCount: v.optional(v.number()),
         lastSyncCategoryCount: v.optional(v.number()),
+        companyId: v.optional(v.string()),
     }),
 
     // App remote configuration (feature flags, maintenance mode, etc.)
@@ -188,5 +194,6 @@ export default defineSchema({
         description: v.string(),
         updatedAt: v.string(),
         updatedBy: v.optional(v.string()),
+        companyId: v.optional(v.string()),
     }).index("by_key", ["key"]),
 });

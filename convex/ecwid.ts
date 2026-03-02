@@ -842,8 +842,12 @@ export const fullSync = action({
 
             // CLEANUP PHASE
             // Only perform cleanup if we did a full sync (no updatedFrom param) or if forced
-            if (!updatedFromParam || args.force) {
-                console.log("Performing cleanup of stale data...");
+            // SAFETY CHECK: Never run cleanup if 0 products were returned — this likely means
+            // the Ecwid API had a temporary issue. Wiping the DB on a bad response is catastrophic.
+            if (productCount === 0) {
+                console.warn("[Sync] SAFETY: Skipping cleanup because productCount = 0. This may indicate an Ecwid API issue. No products will be deleted.");
+            } else if (!updatedFromParam || args.force) {
+                console.log(`Performing cleanup of stale data (synced ${productCount} products)...`);
                 await ctx.runMutation(internal.ecwid.deleteStaleProducts, { syncedBefore: syncStartTime });
                 await ctx.runMutation(internal.ecwid.deleteStaleCategories, { syncedBefore: syncStartTime });
                 // Note: We might want to be careful with customers as they might be created locally too?
