@@ -13,6 +13,7 @@ import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
 import Badge from '@/components/Badge';
+import MapOptionsModal from '@/components/MapOptionsModal';
 import ThemedAlert from '@/components/ThemedAlert';
 import Input from '@/components/Input';
 import Colors from '@/constants/colors';
@@ -38,6 +39,7 @@ export default function OrderDetailPage() {
   const { taxSettings } = useRemoteConfig();
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showMapOptions, setShowMapOptions] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
     title: '',
@@ -276,6 +278,16 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
       ],
     });
     Haptics.selectionAsync();
+  };
+
+  const handleMapOpenError = (platformLabel: string) => {
+    setAlertConfig({
+      visible: true,
+      title: 'Unable to Open Map',
+      message: `Couldn't open ${platformLabel} on this device.`,
+      type: 'error',
+      buttons: [{ text: 'OK', style: 'default' }],
+    });
   };
 
   const getVariationKey = (selectedVariations: SelectedVariation[]): string => {
@@ -1055,13 +1067,16 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
               </View>
             )}
             {order.customerAddress && (
-              <View style={styles.infoRow}>
+              <TouchableOpacity style={[styles.infoRow, styles.mapActionRow]} onPress={() => setShowMapOptions(true)}>
                 <MapPin size={18} color={Colors.light.textTertiary} />
                 <View style={styles.infoTextContainer}>
-                  <Text style={styles.infoLabel}>Address</Text>
+                  <View style={styles.infoHeaderRow}>
+                    <Text style={styles.infoLabel}>Address</Text>
+                    <Text style={styles.mapActionText}>Open in Maps</Text>
+                  </View>
                   <Text style={styles.infoValue}>{order.customerAddress}</Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
           </View>
         </View>
@@ -1217,6 +1232,16 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
       </ScrollView>
 
       {renderEditModal()}
+
+      <MapOptionsModal
+        visible={showMapOptions}
+        address={order.customerAddress}
+        latitude={order.latitude}
+        longitude={order.longitude}
+        label="Order Location"
+        onClose={() => setShowMapOptions(false)}
+        onOpenError={handleMapOpenError}
+      />
 
       <ThemedAlert
         visible={alertConfig.visible}
@@ -1394,10 +1419,24 @@ const styles = StyleSheet.create({
   infoTextContainer: {
     flex: 1,
   },
+  infoHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
   infoLabel: {
     fontSize: 12,
     color: Colors.light.textTertiary,
     marginBottom: 2,
+  },
+  mapActionRow: {
+    borderRadius: 12,
+  },
+  mapActionText: {
+    fontSize: 12,
+    color: Colors.light.primary,
+    fontWeight: '600' as const,
   },
   infoValue: {
     fontSize: 15,

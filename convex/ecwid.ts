@@ -207,10 +207,18 @@ export const upsertCategory = internalMutation({
     },
     handler: async (ctx, args) => {
         // Check if category exists by ecwidId
-        const existing = await ctx.db
+        let existing = await ctx.db
             .query("categories")
             .withIndex("by_ecwidId", (q) => q.eq("ecwidId", args.ecwidId))
             .first();
+
+        // Fallback: Check by name if no ecwidId match (prevents duplicates for initial sync)
+        if (!existing) {
+            existing = await ctx.db
+                .query("categories")
+                .filter(q => q.eq(q.field("name"), args.name))
+                .first();
+        }
 
         // Resolve parent category ID if provided
         let parentId: string | undefined;
@@ -382,10 +390,18 @@ export const upsertProduct = internalMutation({
     },
     handler: async (ctx, args) => {
         // Check if product exists by ecwidId
-        const existing = await ctx.db
+        let existing = await ctx.db
             .query("products")
             .withIndex("by_ecwidId", (q) => q.eq("ecwidId", args.ecwidId))
             .first();
+
+        // Fallback: Check by SKU if no ecwidId match (prevents duplicates for products from CSV/manual entry)
+        if (!existing && args.sku) {
+            existing = await ctx.db
+                .query("products")
+                .withIndex("by_sku", (q) => q.eq("sku", args.sku))
+                .first();
+        }
 
         // Resolve category ID
         let categoryId = "";
@@ -518,17 +534,20 @@ export const upsertProduct = internalMutation({
                 createdAt: new Date().toISOString(),
                 ecwidId: args.ecwidId,
                 lastSyncedAt: args.lastSyncedAt,
+                updatedAt: new Date().toISOString(), // Ensure updatedAt is set on creation too
             });
         }
     },
 });
 
 /**
- * Delete products that haven't been synced since a specific time
+ * Delete products whose ecwidId is NOT in the provided set (i.e. removed from Ecwid).
+ * Only deletes Ecwid-sourced products — manually created products (no ecwidId) are never touched.
  */
-export const deleteStaleProducts = internalMutation({
-    args: { syncedBefore: v.string() },
+export const deleteProductsNotInSet = internalMutation({
+    args: { seenEcwidIds: v.array(v.number()) },
     handler: async (ctx, args) => {
+        const seenSet = new Set(args.seenEcwidIds);
         const products = await ctx.db.query("products")
             .withIndex("by_ecwidId")
             .filter(q => q.neq(q.field("ecwidId"), undefined))
@@ -536,22 +555,26 @@ export const deleteStaleProducts = internalMutation({
 
         let deletedCount = 0;
         for (const product of products) {
-            if (!product.lastSyncedAt || product.lastSyncedAt < args.syncedBefore) {
+            // Only delete if the product has an ecwidId that is no longer in Ecwid
+            if (product.ecwidId !== undefined && !seenSet.has(product.ecwidId)) {
                 await ctx.db.delete(product._id);
                 deletedCount++;
+                console.log(`[Sync] Deleted product "${product.name}" (ecwidId=${product.ecwidId}) — no longer exists in Ecwid.`);
             }
         }
-        console.log(`Deleted ${deletedCount} stale products.`);
+        console.log(`[Sync] Removed ${deletedCount} products that were deleted from Ecwid.`);
         return deletedCount;
     },
 });
 
 /**
- * Delete categories that haven't been synced since a specific time
+ * Delete categories whose ecwidId is NOT in the provided set (i.e. removed from Ecwid).
+ * Only deletes Ecwid-sourced categories — manually created categories (no ecwidId) are never touched.
  */
-export const deleteStaleCategories = internalMutation({
-    args: { syncedBefore: v.string() },
+export const deleteCategoriesNotInSet = internalMutation({
+    args: { seenEcwidIds: v.array(v.number()) },
     handler: async (ctx, args) => {
+        const seenSet = new Set(args.seenEcwidIds);
         const categories = await ctx.db.query("categories")
             .withIndex("by_ecwidId")
             .filter(q => q.neq(q.field("ecwidId"), undefined))
@@ -559,12 +582,13 @@ export const deleteStaleCategories = internalMutation({
 
         let deletedCount = 0;
         for (const cat of categories) {
-            if (!cat.lastSyncedAt || cat.lastSyncedAt < args.syncedBefore) {
+            if (cat.ecwidId !== undefined && !seenSet.has(cat.ecwidId)) {
                 await ctx.db.delete(cat._id);
                 deletedCount++;
+                console.log(`[Sync] Deleted category "${cat.name}" (ecwidId=${cat.ecwidId}) — no longer exists in Ecwid.`);
             }
         }
-        console.log(`Deleted ${deletedCount} stale categories.`);
+        console.log(`[Sync] Removed ${deletedCount} categories that were deleted from Ecwid.`);
         return deletedCount;
     },
 });
@@ -607,6 +631,8 @@ export const fullSync = action({
             let categoryCount = 0;
             let offset = 0;
             const limit = 100;
+            // Track all ecwidIds seen so we know which ones were removed from Ecwid
+            const seenCategoryEcwidIds: number[] = [];
 
             while (true) {
                 const catUrl = `${ECWID_API_BASE}/${settings.storeId}/categories?offset=${offset}&limit=${limit}`;
@@ -625,6 +651,7 @@ export const fullSync = action({
                 const catData = await catResponse.json();
 
                 for (const cat of catData.items) {
+                    seenCategoryEcwidIds.push(cat.id);
                     await ctx.runMutation(internal.ecwid.upsertCategory, {
                         ecwidId: cat.id,
                         name: cat.name || "Unnamed Category",
@@ -646,7 +673,7 @@ export const fullSync = action({
             // =========================================
             let productCount = 0;
             offset = 0;
-
+            const seenProductEcwidIds: number[] = [];
 
             while (true) {
                 const prodUrl = `${ECWID_API_BASE}/${settings.storeId}/products?offset=${offset}&limit=${limit}${updatedFromParam}`;
@@ -749,6 +776,7 @@ export const fullSync = action({
 
                     const moq = extractEcwidMoq(prod);
 
+                    seenProductEcwidIds.push(prod.id);
                     await ctx.runMutation(internal.ecwid.upsertProduct, {
                         ecwidId: prod.id,
                         name: prod.name || "Unnamed Product",
@@ -841,17 +869,21 @@ export const fullSync = action({
             });
 
             // CLEANUP PHASE
-            // Only perform cleanup if we did a full sync (no updatedFrom param) or if forced
-            // SAFETY CHECK: Never run cleanup if 0 products were returned — this likely means
-            // the Ecwid API had a temporary issue. Wiping the DB on a bad response is catastrophic.
+            // Only run on a true full sync (fetched all products from Ecwid, no updatedFrom filter).
+            // During an incremental sync we only see changed products, so we can't know which ones
+            // were deleted — skip cleanup entirely in that case.
+            // SAFETY: Never run if 0 products returned (possible Ecwid API transient failure).
+            const isIncrementalSync = !!updatedFromParam;
             if (productCount === 0) {
-                console.warn("[Sync] SAFETY: Skipping cleanup because productCount = 0. This may indicate an Ecwid API issue. No products will be deleted.");
-            } else if (!updatedFromParam || args.force) {
-                console.log(`Performing cleanup of stale data (synced ${productCount} products)...`);
-                await ctx.runMutation(internal.ecwid.deleteStaleProducts, { syncedBefore: syncStartTime });
-                await ctx.runMutation(internal.ecwid.deleteStaleCategories, { syncedBefore: syncStartTime });
-                // Note: We might want to be careful with customers as they might be created locally too?
-                // Current logic assumes customers in DB with ecwidId MUST exist in Ecwid. 
+                console.warn("[Sync] SAFETY: Skipping cleanup — productCount = 0, possible API issue. No products deleted.");
+            } else if (isIncrementalSync && !args.force) {
+                console.log(`[Sync] Incremental sync — skipping cleanup to preserve ${productCount} unchanged products.`);
+            } else {
+                // Full sync: delete only items whose ecwidId was NOT returned by Ecwid at all
+                // (meaning they were deleted from the Ecwid store). Unchanged products are safe.
+                console.log(`[Sync] Full sync — removing products/categories deleted from Ecwid (saw ${seenProductEcwidIds.length} products, ${seenCategoryEcwidIds.length} categories)...`);
+                await ctx.runMutation(internal.ecwid.deleteProductsNotInSet, { seenEcwidIds: seenProductEcwidIds });
+                await ctx.runMutation(internal.ecwid.deleteCategoriesNotInSet, { seenEcwidIds: seenCategoryEcwidIds });
             }
 
             return { success: true, categoryCount, productCount, customerCount };

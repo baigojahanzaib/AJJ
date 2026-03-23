@@ -51,8 +51,8 @@ export const checkAndSync = internalAction({
         // Check if a sync is already in progress
         if (settings.lastSyncStatus === "in_progress") {
             // Check if "in_progress" is stale (older than 1 hour)
-            const lastSyncAt = settings.lastSyncAt ? new Date(settings.lastSyncAt) : null;
-            if (lastSyncAt && (Date.now() - lastSyncAt.getTime()) > 1000 * 60 * 60) {
+            const secondChanceAt = settings.lastSyncAt ? new Date(settings.lastSyncAt) : null;
+            if (secondChanceAt && (Date.now() - secondChanceAt.getTime()) > 1000 * 60 * 60) {
                 console.log("[Ecwid Cron] Found stale in_progress status (older than 1h), resetting...");
             } else {
                 console.log("[Ecwid Cron] Sync already in progress, skipping");
@@ -64,8 +64,6 @@ export const checkAndSync = internalAction({
         const syncStartTime = new Date().toISOString();
 
         try {
-            // Import and call the fullSync action
-            // We need to manually implement the sync here since we can't call external actions from internal actions
             const ECWID_API_BASE = "https://app.ecwid.com/api/v3";
 
             // Update status to in_progress
@@ -119,11 +117,11 @@ export const checkAndSync = internalAction({
                         image: cat.imageUrl,
                         parentEcwidId: cat.parentId,
                         isActive: cat.enabled !== false,
+                        lastSyncedAt: syncStartTime,
                     });
                     categoryCount++;
                 }
 
-                // If incremental, we might get fewer results than limit, so we just check count
                 if (offset + catData.count >= catData.total) break;
                 offset += limit;
             }
@@ -157,6 +155,23 @@ export const checkAndSync = internalAction({
                         images.push("https://via.placeholder.com/300");
                     }
 
+                    // Analyze combinations to find consistent images for variations
+                    const optionValueImages = new Map<string, Set<string>>();
+
+                    if (prod.combinations && prod.combinations.length > 0) {
+                        for (const comb of prod.combinations) {
+                            if (comb.imageUrl && comb.options) {
+                                for (const opt of comb.options) {
+                                    const key = `${opt.name?.trim().toLowerCase()}:${opt.value?.trim().toLowerCase()}`;
+                                    if (!optionValueImages.has(key)) {
+                                        optionValueImages.set(key, new Set());
+                                    }
+                                    optionValueImages.get(key)?.add(comb.imageUrl);
+                                }
+                            }
+                        }
+                    }
+
                     const variations: any[] = [];
                     if (prod.options && prod.options.length > 0) {
                         for (const option of prod.options) {
@@ -168,13 +183,22 @@ export const checkAndSync = internalAction({
                                     if (choice.priceModifierType === "PERCENT") {
                                         priceModifier = (prod.price * priceModifier) / 100;
                                     }
+                                    // Determine image
+                                    const key = `${option.name.trim().toLowerCase()}:${choice.text?.trim().toLowerCase()}`;
+                                    const imagesFromMap = optionValueImages.get(key);
+                                    let image: string | undefined = undefined;
+
+                                    if (imagesFromMap && imagesFromMap.size === 1) {
+                                        image = Array.from(imagesFromMap)[0];
+                                    }
+
                                     return {
                                         id: `${option.name.trim().toLowerCase().replace(/\s+/g, '-')}-${index}`,
                                         name: choice.text?.trim(),
                                         priceModifier,
                                         sku: prod.sku ? `${prod.sku}-${choice.text?.trim()}` : `SKU-${index}`,
                                         stock: prod.quantity || 0,
-                                        image: undefined,
+                                        image: image,
                                     };
                                 }),
                             };
@@ -202,7 +226,7 @@ export const checkAndSync = internalAction({
                                 name: o.name?.trim(),
                                 value: o.value?.trim()
                             })) || [],
-                            price: c.price,
+                            price: c.price !== undefined && c.price !== null ? c.price : (prod.price || 0),
                             sku: c.sku,
                             stock: c.quantity
                         })),
@@ -210,25 +234,13 @@ export const checkAndSync = internalAction({
                         ribbon: prod.ribbon?.text,
                         ribbonColor: prod.ribbon?.color,
                         moq,
+                        lastSyncedAt: syncStartTime,
                     });
                     productCount++;
                 }
 
                 if (offset + prodData.count >= prodData.total) break;
                 offset += limit;
-            }
-
-            // Cleanup stale data (only if not incremental, or if specifically desired?)
-            // Ideally, incremental syncs MIGHT miss deletions if the API doesn't report them.
-            // Ecwid API 'updatedFrom' returns *changes*. Deletions might not be in the list?
-            // Actually, querying "all products" is safer for cleanup.
-            // But if this cron is incremental, we CANT run cleanup because we didn't see all products.
-            if (!isIncremental) {
-                // console.log(`[Ecwid Cron] Cleaning up data older than ${syncStartTime}`);
-                // await ctx.runMutation(internal.ecwid.deleteStaleCategories, { syncedBefore: syncStartTime });
-                // await ctx.runMutation(internal.ecwid.deleteStaleProducts, { syncedBefore: syncStartTime });
-            } else {
-                console.log(`[Ecwid Cron] Skipping cleanup for incremental sync`);
             }
 
             await ctx.runMutation(internal.ecwid.updateSyncStatus, {

@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, Pressable, Linking, Platform } from 'react-native';
+import { StyleSheet, Text, View, Modal, TouchableOpacity, ScrollView, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import { X, Eye, Edit3, Package, User, Phone, Mail, MapPin, FileText, ChevronDown } from 'lucide-react-native';
 import { Order, OrderStatus } from '@/types';
 import Colors from '@/constants/colors';
 import Badge from '@/components/Badge';
 import Button from '@/components/Button';
+import MapOptionsModal from '@/components/MapOptionsModal';
 import { useData } from '@/contexts/DataContext';
 
 interface OrderDetailModalProps {
@@ -38,6 +39,7 @@ export default function OrderDetailModal({
   const [viewMode, setViewMode] = useState<'quick' | 'view' | 'edit'>(mode);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | null>(null);
+  const [showMapOptions, setShowMapOptions] = useState(false);
 
   if (!order) return null;
 
@@ -66,21 +68,8 @@ export default function OrderDetailModal({
     setViewMode('quick');
     setShowStatusPicker(false);
     setSelectedStatus(null);
+    setShowMapOptions(false);
     onClose();
-  };
-
-  const handleOpenMap = (lat: number, lng: number) => {
-    const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
-    const latLng = `${lat},${lng}`;
-    const label = 'Order Location';
-    const url = Platform.select({
-      ios: `${scheme}${label}@${latLng}`,
-      android: `${scheme}${latLng}(${label})`
-    });
-
-    if (url) {
-      Linking.openURL(url);
-    }
   };
 
   const formatDate = (dateString: string) => {
@@ -181,29 +170,30 @@ export default function OrderDetailModal({
             </View>
           )}
           {order.customerAddress && (
-            <View style={styles.infoRow}>
+            <TouchableOpacity style={[styles.infoRow, styles.mapActionRow]} onPress={() => setShowMapOptions(true)}>
               <MapPin size={18} color={Colors.light.textTertiary} />
               <View style={styles.infoTextContainer}>
-                <Text style={styles.infoLabel}>Address</Text>
+                <View style={styles.infoHeaderRow}>
+                  <Text style={styles.infoLabel}>Address</Text>
+                  <Text style={styles.mapActionText}>Open in Maps</Text>
+                </View>
                 <Text style={styles.infoValue}>{order.customerAddress}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           )}
           {(order.latitude !== undefined && order.longitude !== undefined) && (
-            <View style={styles.infoRow}>
+            <TouchableOpacity style={[styles.infoRow, styles.mapActionRow]} onPress={() => setShowMapOptions(true)}>
               <MapPin size={18} color={Colors.light.primary} />
               <View style={styles.infoTextContainer}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={styles.infoHeaderRow}>
                   <Text style={styles.infoLabel}>Grid Coordinates</Text>
-                  <TouchableOpacity onPress={() => handleOpenMap(order.latitude!, order.longitude!)}>
-                    <Text style={{ fontSize: 12, color: Colors.light.primary, fontWeight: '600' }}>View on Map</Text>
-                  </TouchableOpacity>
+                  <Text style={styles.mapActionText}>Open in Maps</Text>
                 </View>
                 <Text style={[styles.infoValue, { fontFamily: 'monospace', fontSize: 13 }]}>
                   {order.latitude.toFixed(6)}, {order.longitude.toFixed(6)}
                 </Text>
               </View>
-            </View>
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -353,6 +343,15 @@ export default function OrderDetailModal({
           {viewMode === 'quick' ? renderQuickView() : renderDetailView()}
         </Pressable>
       </Pressable>
+
+      <MapOptionsModal
+        visible={showMapOptions}
+        address={order.customerAddress}
+        latitude={order.latitude}
+        longitude={order.longitude}
+        label="Order Location"
+        onClose={() => setShowMapOptions(false)}
+      />
     </Modal>
   );
 }
@@ -486,10 +485,24 @@ const styles = StyleSheet.create({
   infoTextContainer: {
     flex: 1,
   },
+  infoHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
   infoLabel: {
     fontSize: 12,
     color: Colors.light.textTertiary,
     marginBottom: 2,
+  },
+  mapActionRow: {
+    borderRadius: 12,
+  },
+  mapActionText: {
+    fontSize: 12,
+    color: Colors.light.primary,
+    fontWeight: '600' as const,
   },
   infoValue: {
     fontSize: 15,

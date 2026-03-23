@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Linking, Platform } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { ArrowLeft, Phone, Mail, MapPin, Building2, Edit2, Trash2 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useData } from '@/contexts/DataContext';
 import Card from '@/components/Card';
+import MapOptionsModal from '@/components/MapOptionsModal';
 import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
 
@@ -29,6 +30,7 @@ export default function CustomerDetailPage() {
         type: 'info',
         buttons: [],
     });
+    const [showMapOptions, setShowMapOptions] = useState(false);
 
     const { getCustomerById, updateCustomer } = useData();
     const customer = getCustomerById(id as string);
@@ -67,18 +69,13 @@ export default function CustomerDetailPage() {
         });
     };
 
-    const handleOpenMap = (lat: number, lng: number) => {
-        const scheme = Platform.select({ ios: 'maps:0,0?q=', android: 'geo:0,0?q=' });
-        const latLng = `${lat},${lng}`;
-        const label = 'Customer Location';
-        const url = Platform.select({
-            ios: `${scheme}${label}@${latLng}`,
-            android: `${scheme}${latLng}(${label})`
+    const handleMapOpenError = (platformLabel: string) => {
+        showAlert({
+            title: 'Unable to Open Map',
+            message: `Couldn't open ${platformLabel} on this device.`,
+            type: 'error',
+            buttons: [{ text: 'OK', style: 'default' }],
         });
-
-        if (url) {
-            Linking.openURL(url);
-        }
     };
 
     if (!customer) {
@@ -156,37 +153,38 @@ export default function CustomerDetailPage() {
                         {customer.address && (
                             <>
                                 <View style={styles.detailDivider} />
-                                <View style={styles.detailRow}>
+                                <TouchableOpacity style={[styles.detailRow, styles.mapActionRow]} onPress={() => setShowMapOptions(true)}>
                                     <View style={styles.detailIcon}>
                                         <MapPin size={18} color={Colors.light.primary} />
                                     </View>
                                     <View style={styles.detailContent}>
-                                        <Text style={styles.detailLabel}>Address</Text>
+                                        <View style={styles.detailHeaderRow}>
+                                            <Text style={styles.detailLabel}>Address</Text>
+                                            <Text style={styles.mapActionText}>Open in Maps</Text>
+                                        </View>
                                         <Text style={styles.detailValue}>{customer.address}</Text>
                                     </View>
-                                </View>
+                                </TouchableOpacity>
                             </>
                         )}
 
                         {(customer.latitude !== undefined && customer.longitude !== undefined) && (
                             <>
                                 <View style={styles.detailDivider} />
-                                <View style={styles.detailRow}>
+                                <TouchableOpacity style={[styles.detailRow, styles.mapActionRow]} onPress={() => setShowMapOptions(true)}>
                                     <View style={styles.detailIcon}>
                                         <MapPin size={18} color={Colors.light.primary} />
                                     </View>
                                     <View style={styles.detailContent}>
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <View style={styles.detailHeaderRow}>
                                             <Text style={styles.detailLabel}>Grid Coordinates</Text>
-                                            <TouchableOpacity onPress={() => handleOpenMap(customer.latitude!, customer.longitude!)}>
-                                                <Text style={{ fontSize: 12, color: Colors.light.primary, fontWeight: '600' }}>View on Map</Text>
-                                            </TouchableOpacity>
+                                            <Text style={styles.mapActionText}>Open in Maps</Text>
                                         </View>
                                         <Text style={[styles.detailValue, { fontFamily: 'monospace', fontSize: 13 }]}>
                                             {customer.latitude.toFixed(6)}, {customer.longitude.toFixed(6)}
                                         </Text>
                                     </View>
-                                </View>
+                                </TouchableOpacity>
                             </>
                         )}
 
@@ -227,6 +225,16 @@ export default function CustomerDetailPage() {
                 type={alertConfig.type}
                 buttons={alertConfig.buttons}
                 onClose={() => setAlertConfig(prev => ({ ...prev, visible: false }))}
+            />
+
+            <MapOptionsModal
+                visible={showMapOptions}
+                address={customer.address}
+                latitude={customer.latitude}
+                longitude={customer.longitude}
+                label="Customer Location"
+                onClose={() => setShowMapOptions(false)}
+                onOpenError={handleMapOpenError}
             />
         </SafeAreaView>
     );
@@ -321,10 +329,24 @@ const styles = StyleSheet.create({
     detailContent: {
         flex: 1,
     },
+    detailHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: 12,
+    },
     detailLabel: {
         fontSize: 12,
         color: Colors.light.textTertiary,
         marginBottom: 2,
+    },
+    mapActionRow: {
+        borderRadius: 12,
+    },
+    mapActionText: {
+        fontSize: 12,
+        color: Colors.light.primary,
+        fontWeight: '600' as const,
     },
     detailValue: {
         fontSize: 15,

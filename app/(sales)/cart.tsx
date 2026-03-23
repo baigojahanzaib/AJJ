@@ -378,7 +378,7 @@ export default function SalesCart() {
         productId: item.product.id,
         productName: item.product.name,
         productSku: findCombinationSku(item.product, item.selectedVariations),
-        productImage: item.product.images[0],
+        productImage: item.product.images?.[0] ?? '',
         selectedVariations: item.selectedVariations,
         quantity: item.quantity,
         unitPrice: item.unitPrice,

@@ -1,8 +1,8 @@
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { StyleSheet, Text, View, FlatList, TouchableOpacity, Modal, Pressable } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { ArrowUpDown, Check, Grid, List, RefreshCw } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,12 +27,15 @@ export default function SalesCatalog() {
     isSyncing
   } = useData();
   const { user } = useAuth();
+  const navigation = useNavigation();
 
   const [sortModalVisible, setSortModalVisible] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const flatListRef = useRef<FlatList>(null);
   const scrollOffsetRef = useRef(0);
+  // Save scroll position before search so we can restore it when search is cleared
+  const mainCatalogOffsetRef = useRef<number | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -41,12 +44,45 @@ export default function SalesCatalog() {
           offset: scrollOffsetRef.current,
           animated: false,
         });
-      }, 50);
-      return () => clearTimeout(timeout);
-    }, [])
+      }, 100);
+
+      // Prevent the tab bar from resetting scroll to top when tapping the tab
+      const parent = navigation.getParent();
+      const unsubscribe = parent?.addListener('tabPress' as any, (e: any) => {
+        e.preventDefault();
+      });
+
+      return () => {
+        clearTimeout(timeout);
+        unsubscribe?.();
+      };
+    }, [navigation])
   );
 
-  // Extract unique ribbons/promotion tags from products
+  // When search query changes: save offset before search starts; restore when search is cleared
+  const prevSearchQuery = useRef(searchQuery);
+  useEffect(() => {
+    const wasEmpty = prevSearchQuery.current === '';
+    const isNowEmpty = searchQuery === '';
+
+    if (!wasEmpty && isNowEmpty) {
+      // Search was just cleared — restore pre-search position
+      const target = mainCatalogOffsetRef.current ?? 0;
+      mainCatalogOffsetRef.current = null;
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: target, animated: false });
+      }, 100);
+    } else if (wasEmpty && !isNowEmpty) {
+      // Search just started — save current position and scroll to top
+      mainCatalogOffsetRef.current = scrollOffsetRef.current;
+      setTimeout(() => {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }, 100);
+    }
+
+    prevSearchQuery.current = searchQuery;
+  }, [searchQuery]);
+
   // Combined filter items (All + Ribbons + Categories)
   const filterItems = useMemo(() => {
     const items: { type: 'all' | 'category' | 'ribbon'; id: string | null; label: string }[] = [
@@ -78,11 +114,6 @@ export default function SalesCatalog() {
     { key: 'price_high', label: 'Price: High to Low' },
   ];
 
-  const getSortLabel = (key: SortOption): string => {
-    return sortOptions.find(opt => opt.key === key)?.label || 'Default';
-  };
-
-  // Products are now managed by DataContext
   const filteredProducts = filteredSortedProducts;
 
   const handleProductPress = (productId: string) => {
@@ -229,6 +260,8 @@ export default function SalesCatalog() {
         showsVerticalScrollIndicator={false}
         onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
         scrollEventThrottle={16}
+        onScrollEndDrag={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+        onMomentumScrollEnd={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No products found</Text>
@@ -317,7 +350,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500' as const,
     color: Colors.light.textSecondary,
-    includeFontPadding: false, // Fix for Android font padding
+    includeFontPadding: false,
     textAlignVertical: 'center',
   },
   filterChipRibbonText: {
@@ -348,6 +381,15 @@ const styles = StyleSheet.create({
   },
   listItem: {
     marginBottom: 16,
+  },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    paddingTop: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: Colors.light.textTertiary,
   },
   modalOverlay: {
     flex: 1,
