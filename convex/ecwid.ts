@@ -5,6 +5,90 @@ import { internal, api } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { extractEcwidMoq } from "./ecwidMoq";
 
+type EcwidCustomerPerson = {
+    name?: string | null;
+    phone?: string | null;
+    street?: string | null;
+    city?: string | null;
+    countryCode?: string | null;
+    postalCode?: string | null;
+    company?: string | null;
+};
+
+type EcwidCustomerRecord = {
+    id: number;
+    email?: string | null;
+    name?: string | null;
+    phone?: string | null;
+    companyName?: string | null;
+    billingPerson?: EcwidCustomerPerson | null;
+    shippingPerson?: EcwidCustomerPerson | null;
+};
+
+function pickFirstNonEmpty(...values: Array<string | null | undefined>): string {
+    for (const value of values) {
+        if (typeof value === "string") {
+            const trimmed = value.trim();
+            if (trimmed.length > 0) {
+                return trimmed;
+            }
+        }
+    }
+    return "";
+}
+
+function hasPersonDetails(person?: EcwidCustomerPerson | null): boolean {
+    return Boolean(
+        pickFirstNonEmpty(
+            person?.name,
+            person?.phone,
+            person?.street,
+            person?.city,
+            person?.countryCode,
+            person?.postalCode,
+            person?.company,
+        )
+    );
+}
+
+function getEcwidCustomerSyncPayload(customer: EcwidCustomerRecord) {
+    const primaryPerson = hasPersonDetails(customer.billingPerson)
+        ? customer.billingPerson
+        : customer.shippingPerson;
+    const fallbackPerson = primaryPerson === customer.billingPerson
+        ? customer.shippingPerson
+        : customer.billingPerson;
+
+    const city = pickFirstNonEmpty(primaryPerson?.city, fallbackPerson?.city);
+    const countryCode = pickFirstNonEmpty(primaryPerson?.countryCode, fallbackPerson?.countryCode);
+    const postalCode = pickFirstNonEmpty(primaryPerson?.postalCode, fallbackPerson?.postalCode);
+    const company = pickFirstNonEmpty(
+        primaryPerson?.company,
+        fallbackPerson?.company,
+        customer.companyName,
+    );
+
+    return {
+        name: pickFirstNonEmpty(
+            customer.name,
+            primaryPerson?.name,
+            fallbackPerson?.name,
+            customer.email,
+            "Unknown Name",
+        ),
+        phone: pickFirstNonEmpty(
+            customer.phone,
+            primaryPerson?.phone,
+            fallbackPerson?.phone,
+        ),
+        address: pickFirstNonEmpty(primaryPerson?.street, fallbackPerson?.street),
+        city: city || undefined,
+        countryCode: countryCode || undefined,
+        postalCode: postalCode || undefined,
+        company: company || undefined,
+    };
+}
+
 export const inspectProduct = query({
     args: { sku: v.string() },
     handler: async (ctx, args) => {
@@ -835,21 +919,23 @@ export const fullSync = action({
 
                 const custData = await custResponse.json();
 
-                for (const cust of custData.items) {
+                for (const cust of custData.items as EcwidCustomerRecord[]) {
                     if (!cust.email) {
                         continue;
                     }
 
+                    const customerPayload = getEcwidCustomerSyncPayload(cust);
+
                     await ctx.runMutation(internal.ecwid.upsertCustomer, {
                         ecwidId: cust.id,
                         email: cust.email,
-                        name: cust.name || cust.billingPerson?.name || "Unknown Name",
-                        phone: cust.billingPerson?.phone || "",
-                        address: cust.billingPerson?.street || "",
-                        city: cust.billingPerson?.city,
-                        countryCode: cust.billingPerson?.countryCode,
-                        postalCode: cust.billingPerson?.postalCode,
-                        company: cust.billingPerson?.company,
+                        name: customerPayload.name,
+                        phone: customerPayload.phone,
+                        address: customerPayload.address,
+                        city: customerPayload.city,
+                        countryCode: customerPayload.countryCode,
+                        postalCode: customerPayload.postalCode,
+                        company: customerPayload.company,
                         lastSyncedAt: syncStartTime,
                     });
                     customerCount++;
@@ -984,21 +1070,23 @@ export const syncCustomers = action({
 
                 const custData = await custResponse.json();
 
-                for (const cust of custData.items) {
+                for (const cust of custData.items as EcwidCustomerRecord[]) {
                     if (!cust.email) {
                         continue;
                     }
 
+                    const customerPayload = getEcwidCustomerSyncPayload(cust);
+
                     await ctx.runMutation(internal.ecwid.upsertCustomer, {
                         ecwidId: cust.id,
                         email: cust.email,
-                        name: cust.name || cust.billingPerson?.name || "Unknown Name",
-                        phone: cust.billingPerson?.phone || "",
-                        address: cust.billingPerson?.street || "",
-                        city: cust.billingPerson?.city,
-                        countryCode: cust.billingPerson?.countryCode,
-                        postalCode: cust.billingPerson?.postalCode,
-                        company: cust.billingPerson?.company,
+                        name: customerPayload.name,
+                        phone: customerPayload.phone,
+                        address: customerPayload.address,
+                        city: customerPayload.city,
+                        countryCode: customerPayload.countryCode,
+                        postalCode: customerPayload.postalCode,
+                        company: customerPayload.company,
                     });
                     customerCount++;
                 }

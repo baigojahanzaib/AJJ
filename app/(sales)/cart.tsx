@@ -319,10 +319,14 @@ export default function SalesCart() {
       ? { name: customer.name, phone: customer.phone, email: customer.email, address: customer.address, latitude: customer.latitude, longitude: customer.longitude }
       : newCustomerData || { ...customerInfo, latitude: undefined, longitude: undefined };
 
-    if (!customerData.name.trim() || !customerData.phone.trim()) {
+    const requiresPhone = !customer;
+
+    if (!customerData.name.trim() || (requiresPhone && !customerData.phone.trim())) {
       showAlert({
         title: 'Missing Information',
-        message: 'Please select a customer or create a new one.',
+        message: requiresPhone
+          ? 'Please fill in customer name and phone number.'
+          : 'The selected customer is missing a name.',
         type: 'warning',
         buttons: [{ text: 'OK', style: 'default' }],
       });
