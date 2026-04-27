@@ -40,6 +40,17 @@ export interface ProductVariation {
   options: VariationOption[];
 }
 
+export interface ProductCombination {
+  id: string | number;
+  options: {
+    name: string;
+    value: string;
+  }[];
+  price: number;
+  sku?: string;
+  stock?: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -51,16 +62,7 @@ export interface Product {
   categoryId: string;
   isActive: boolean;
   variations: ProductVariation[];
-  combinations?: {
-    id: string | number;
-    options: {
-      name: string;
-      value: string;
-    }[];
-    price: number;
-    sku?: string;
-    stock?: number;
-  }[];
+  combinations?: ProductCombination[];
   stock: number;
   createdAt: string;
   moq?: number;
@@ -131,6 +133,7 @@ export interface Order {
   previousVersion?: Omit<Order, 'previousVersion'>;
   editLog?: OrderEditLog[];
   ecwidOrderId?: string | number;
+  lastSyncedAt?: string;
 }
 
 export interface DashboardStats {

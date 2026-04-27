@@ -1,6 +1,6 @@
 
 import { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -15,6 +15,15 @@ import { useData } from '@/contexts/DataContext';
 import Card from '@/components/Card';
 import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
+
+const formatRuntimeVersion = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && 'policy' in value) {
+    const policy = (value as { policy?: unknown }).policy;
+    return typeof policy === 'string' ? policy : undefined;
+  }
+  return undefined;
+};
 
 export default function SalesProfile() {
   const router = useRouter();
@@ -36,6 +45,13 @@ export default function SalesProfile() {
 
   // Get app version info
   const appVersion = Constants.expoConfig?.version || '1.0.0';
+  const runtimeVersion =
+    Updates.runtimeVersion ||
+    formatRuntimeVersion(Platform.OS === 'android'
+      ? Constants.expoConfig?.android?.runtimeVersion
+      : Constants.expoConfig?.ios?.runtimeVersion) ||
+    formatRuntimeVersion(Constants.expoConfig?.runtimeVersion) ||
+    'N/A';
   const updateId = Updates.updateId;
   const isEmbedded = Updates.isEmbeddedLaunch;
   const channel = Updates.channel || (Updates.updateId ? 'production' : null);
@@ -310,6 +326,13 @@ export default function SalesProfile() {
             <View style={styles.updateRow}>
               <Text style={styles.updateLabel}>Version</Text>
               <Text style={styles.updateValue}>{appVersion}</Text>
+            </View>
+
+            <View style={styles.updateDivider} />
+
+            <View style={styles.updateRow}>
+              <Text style={styles.updateLabel}>Runtime</Text>
+              <Text style={styles.updateValue}>{runtimeVersion}</Text>
             </View>
 
             <View style={styles.updateDivider} />

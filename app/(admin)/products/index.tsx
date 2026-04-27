@@ -3,21 +3,26 @@ import { StyleSheet, Text, View, FlatList, TouchableOpacity } from 'react-native
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { Plus, Grid, List, FileUp, Package } from 'lucide-react-native';
+import { Plus, Grid, List, FileUp, FileDown, Package } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { useData } from '@/contexts/DataContext';
 import SearchBar from '@/components/SearchBar';
 import ProductCard from '@/components/ProductCard';
 import Button from '@/components/Button';
 import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
+import { generateProductCsv, parseProductCsv } from '@/lib/product-csv';
 
 export default function AdminProducts() {
   const router = useRouter();
-  const { products, categories } = useData();
+  const { products, categories, importProducts } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
     title: '',
@@ -62,6 +67,62 @@ export default function AdminProducts() {
     router.push('/(admin)/add-product');
   };
 
+  const showAlert = (
+    title: string,
+    message: string,
+    type: 'success' | 'error' | 'warning' | 'info' = 'info'
+  ) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      type,
+      buttons: [
+        { text: 'OK', onPress: () => setAlertConfig(prev => ({ ...prev, visible: false })) },
+      ],
+    });
+  };
+
+  const handleExportCSV = async () => {
+    if (products.length === 0) {
+      showAlert('No Products', 'There are no products to export yet.', 'warning');
+      return;
+    }
+
+    try {
+      setIsExporting(true);
+      const csvContent = generateProductCsv(products, categories);
+      const fileName = `products_${new Date().toISOString().split('T')[0]}.csv`;
+      const docDir = FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
+
+      if (!docDir) {
+        throw new Error('No writable document directory is available.');
+      }
+
+      const fileUri = `${docDir}${fileName}`;
+      await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: 'utf8' });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Export Products CSV',
+          UTI: 'public.comma-separated-values-text',
+        });
+      } else {
+        showAlert('CSV Exported', `Products CSV was saved to ${fileName}.`, 'success');
+      }
+    } catch (error) {
+      console.error('CSV export failed:', error);
+      showAlert(
+        'Export Failed',
+        error instanceof Error ? error.message : 'Failed to export products CSV.',
+        'error'
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleImportCSV = async () => {
     setShowAddOptions(false);
     try {
@@ -73,27 +134,51 @@ export default function AdminProducts() {
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const file = result.assets[0];
         console.log('CSV file selected:', file.name);
-        setAlertConfig({
-          visible: true,
-          title: 'CSV Import',
-          message: `File "${file.name}" selected. CSV import functionality will process your products in batch.`,
-          type: 'info',
-          buttons: [
-            { text: 'OK', onPress: () => setAlertConfig(prev => ({ ...prev, visible: false })) },
-          ],
-        });
+        setIsImporting(true);
+        const content = await FileSystem.readAsStringAsync(file.uri, { encoding: 'utf8' });
+        const parsed = parseProductCsv(content);
+
+        if (parsed.products.length === 0) {
+          showAlert(
+            'Import Failed',
+            parsed.errors.length > 0 ? parsed.errors.join('\n') : 'No valid products were found in this CSV.',
+            'error'
+          );
+          return;
+        }
+
+        if (parsed.errors.length > 0) {
+          showAlert(
+            'Import Failed',
+            parsed.errors.slice(0, 5).join('\n'),
+            'error'
+          );
+          return;
+        }
+
+        const summary = await importProducts(parsed.products);
+        const warningText = parsed.warnings.length > 0
+          ? `\n\nWarnings:\n${parsed.warnings.slice(0, 3).join('\n')}`
+          : '';
+        const failureText = summary.failures.length > 0
+          ? `\n\nFailures:\n${summary.failures.slice(0, 3).map(item => `${item.sku}: ${item.message}`).join('\n')}`
+          : '';
+
+        showAlert(
+          summary.failed > 0 ? 'Import Completed with Issues' : 'Import Complete',
+          `Imported ${parsed.products.length} products from "${file.name}".\nCreated: ${summary.created}\nUpdated: ${summary.updated}\nFailed: ${summary.failed}${warningText}${failureText}`,
+          summary.failed > 0 ? 'warning' : 'success'
+        );
       }
     } catch (error) {
-      console.error('Error picking document:', error);
-      setAlertConfig({
-        visible: true,
-        title: 'Error',
-        message: 'Failed to open file picker. Please try again.',
-        type: 'error',
-        buttons: [
-          { text: 'OK', onPress: () => setAlertConfig(prev => ({ ...prev, visible: false })) },
-        ],
-      });
+      console.error('CSV import failed:', error);
+      showAlert(
+        'Import Failed',
+        error instanceof Error ? error.message : 'Failed to import the selected CSV.',
+        'error'
+      );
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -118,6 +203,14 @@ export default function AdminProducts() {
       <View style={styles.header}>
         <Text style={styles.title}>Products</Text>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[styles.viewToggle, (isExporting || isImporting) && styles.headerActionDisabled]}
+            onPress={handleExportCSV}
+            disabled={isExporting || isImporting}
+            accessibilityLabel="Export products CSV"
+          >
+            <FileDown size={18} color={Colors.light.primary} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={[styles.viewToggle, viewMode === 'grid' && styles.viewToggleActive]}
             onPress={() => setViewMode('grid')}
@@ -204,15 +297,18 @@ export default function AdminProducts() {
             </TouchableOpacity>
             <View style={styles.addOptionDivider} />
             <TouchableOpacity
-              style={styles.addOption}
+              style={[styles.addOption, isImporting && styles.headerActionDisabled]}
               onPress={handleImportCSV}
+              disabled={isImporting}
             >
               <View style={styles.addOptionIcon}>
                 <FileUp size={20} color={Colors.light.primary} />
               </View>
               <View style={styles.addOptionContent}>
                 <Text style={styles.addOptionTitle}>Import from CSV</Text>
-                <Text style={styles.addOptionSubtitle}>Bulk import products from file</Text>
+                <Text style={styles.addOptionSubtitle}>
+                  {isImporting ? 'Importing products...' : 'Bulk import products from file'}
+                </Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -278,6 +374,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.light.surface,
     borderWidth: 1,
     borderColor: Colors.light.primary,
+  },
+  headerActionDisabled: {
+    opacity: 0.5,
   },
   searchContainer: {
     paddingHorizontal: 20,

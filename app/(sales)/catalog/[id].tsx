@@ -265,24 +265,6 @@ export default function ProductDetailPage() {
         );
     };
 
-    if (!product) {
-        return (
-            <SafeAreaView style={styles.container} edges={['top']}>
-                <Stack.Screen options={{ headerShown: false, presentation: 'card' }} />
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <ArrowLeft size={24} color={Colors.light.text} />
-                    </TouchableOpacity>
-                    <Text style={styles.headerTitle}>Product Not Found</Text>
-                    <View style={{ width: 24 }} />
-                </View>
-                <View style={styles.emptyState}>
-                    <Text style={styles.emptyText}>Product not found</Text>
-                </View>
-            </SafeAreaView>
-        );
-    }
-
     const [activeImageIndex, setActiveImageIndex] = useState(0);
     const [imageModalVisible, setImageModalVisible] = useState(false);
     const screenWidth = Dimensions.get('window').width;
@@ -369,6 +351,24 @@ export default function ProductDetailPage() {
 
     // Combine both fling gestures
     const combinedGesture = Gesture.Simultaneous(flingLeft, flingRight);
+
+    if (!product) {
+        return (
+            <SafeAreaView style={styles.container} edges={['top']}>
+                <Stack.Screen options={{ headerShown: false, presentation: 'card' }} />
+                <View style={styles.header}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <ArrowLeft size={24} color={Colors.light.text} />
+                    </TouchableOpacity>
+                    <Text style={styles.headerTitle}>Product Not Found</Text>
+                    <View style={{ width: 24 }} />
+                </View>
+                <View style={styles.emptyState}>
+                    <Text style={styles.emptyText}>Product not found</Text>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <GestureDetector gesture={combinedGesture}>

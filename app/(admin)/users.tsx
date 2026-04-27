@@ -8,7 +8,7 @@ import SearchBar from '@/components/SearchBar';
 import UserCard from '@/components/UserCard';
 import Button from '@/components/Button';
 import ThemedAlert from '@/components/ThemedAlert';
-import UserFormModal from '@/components/UserFormModal';
+import UserFormModal, { UserFormData } from '@/components/UserFormModal';
 import Colors from '@/constants/colors';
 import { User } from '@/types';
 
@@ -98,7 +98,7 @@ export default function AdminUsers() {
     setShowUserModal(true);
   };
 
-  const handleSaveUser = (userData: Omit<User, 'id' | 'createdAt'>) => {
+  const handleSaveUser = (userData: UserFormData) => {
     if (editingUser) {
       updateUser(editingUser.id, userData);
       setAlertConfig({
@@ -109,7 +109,7 @@ export default function AdminUsers() {
         buttons: [{ text: 'OK', style: 'default' }],
       });
     } else {
-      addUser(userData);
+      addUser({ ...userData, password: userData.password ?? '' });
       setAlertConfig({
         visible: true,
         title: 'User Created',

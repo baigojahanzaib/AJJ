@@ -1,30 +1,25 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, TextInput, Modal } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, ScrollView, TouchableOpacity, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
+import { useConvex, useMutation } from 'convex/react';
 import {
-  ArrowLeft, Plus, X, Check, ImagePlus, Trash2, ChevronDown, Link2, Unlink, Edit2, Copy, Palette, Layers
+  ArrowLeft, Plus, X, Check, ImagePlus, Trash2, ChevronDown, Link2, Unlink, Edit2, Copy, Palette, Layers, Camera, RefreshCw
 } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import Input from '@/components/Input';
 import Button from '@/components/Button';
 import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
-import { ProductVariation, VariationOption } from '@/types';
+import { ProductCombination, ProductVariation, VariationOption } from '@/types';
+import { api } from '@/convex/_generated/api';
+import { Id } from '@/convex/_generated/dataModel';
 
-const sampleImages = [
-  'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1526170375885-4d8ecf77b99f?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1560343090-f0409e92791a?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1585386959984-a4155224a1ad?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1606107557195-0e29a4b5b4aa?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=400&h=400&fit=crop',
-  'https://images.unsplash.com/photo-1549298916-b41d501d3772?w=400&h=400&fit=crop',
-];
+type ProductImagePickerTarget = 'product' | 'variationOption';
+type ImagePickerSource = 'library' | 'camera';
 
 const variationPresets = [
   { name: 'Size', options: ['XS', 'S', 'M', 'L', 'XL', 'XXL'] },
@@ -33,10 +28,116 @@ const variationPresets = [
   { name: 'Style', options: ['Classic', 'Modern', 'Vintage', 'Casual', 'Formal'] },
 ];
 
+type CombinationOption = ProductCombination['options'][number];
+type CombinationSelection = {
+  variation: ProductVariation;
+  option: VariationOption;
+};
+
+const normalizeCombinationText = (value: string) => value.trim().toLowerCase();
+
+const getCombinationKey = (options: CombinationOption[]) => (
+  options
+    .map(option => `${normalizeCombinationText(option.name)}:${normalizeCombinationText(option.value)}`)
+    .sort()
+    .join('|')
+);
+
+const getCombinationLabel = (combination: ProductCombination) => (
+  combination.options.map(option => option.value).join(' / ')
+);
+
+const parseNumberInput = (value: string, fallback = 0) => {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const parseOptionalIntegerInput = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const getCompleteVariations = (sourceVariations: ProductVariation[]) => (
+  sourceVariations
+    .map(variation => ({
+      ...variation,
+      options: variation.options.filter(option => option.name.trim().length > 0),
+    }))
+    .filter(variation => variation.name.trim().length > 0 && variation.options.length > 0)
+);
+
+const createDefaultCombinationId = (options: CombinationOption[], index: number) => {
+  const key = getCombinationKey(options)
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80);
+
+  return `combo-${key || index}`;
+};
+
+const buildCombinationMatrix = (
+  sourceVariations: ProductVariation[],
+  existingCombinations: ProductCombination[],
+  basePriceValue: number
+): ProductCombination[] => {
+  const completeVariations = getCompleteVariations(sourceVariations);
+  if (completeVariations.length < 2) return [];
+
+  const existingByKey = new Map(
+    existingCombinations.map(combination => [getCombinationKey(combination.options), combination])
+  );
+  const rows: CombinationSelection[][] = [];
+
+  const walk = (variationIndex: number, selected: CombinationSelection[]) => {
+    if (variationIndex === completeVariations.length) {
+      rows.push(selected);
+      return;
+    }
+
+    const variation = completeVariations[variationIndex];
+    variation.options.forEach(option => {
+      walk(variationIndex + 1, [...selected, { variation, option }]);
+    });
+  };
+
+  walk(0, []);
+
+  return rows.map((selection, index) => {
+    const options = selection.map(({ variation, option }) => ({
+      name: variation.name.trim(),
+      value: option.name.trim(),
+    }));
+    const key = getCombinationKey(options);
+    const existing = existingByKey.get(key);
+    const defaultPrice = basePriceValue + selection.reduce((sum, item) => sum + item.option.priceModifier, 0);
+    const defaultStock = Math.min(...selection.map(item => item.option.stock));
+
+    return {
+      id: existing?.id ?? createDefaultCombinationId(options, index),
+      options,
+      price: existing?.price ?? defaultPrice,
+      sku: existing?.sku,
+      stock: existing?.stock ?? defaultStock,
+    };
+  });
+};
+
+const sanitizeCombinations = (combinations: ProductCombination[]) => (
+  combinations.map(combination => ({
+    ...combination,
+    sku: combination.sku?.trim() || undefined,
+  }))
+);
+
 export default function AddProductPage() {
   const router = useRouter();
   const params = useLocalSearchParams<{ productId?: string }>();
   const { categories, addProduct, updateProduct, getProductById } = useData();
+  const convex = useConvex();
+  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
 
   const editingProduct = params.productId ? getProductById(params.productId) : null;
   const isEditing = !!editingProduct;
@@ -49,6 +150,7 @@ export default function AddProductPage() {
   const [selectedCategoryId, setSelectedCategoryId] = useState(editingProduct?.categoryId || '');
   const [images, setImages] = useState<string[]>(editingProduct?.images || []);
   const [variations, setVariations] = useState<ProductVariation[]>(editingProduct?.variations || []);
+  const [combinations, setCombinations] = useState<ProductCombination[]>(editingProduct?.combinations || []);
   const [isActive, setIsActive] = useState(editingProduct?.isActive ?? true);
 
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -56,12 +158,13 @@ export default function AddProductPage() {
   const [showVariationModal, setShowVariationModal] = useState(false);
   const [showOptionImagePicker, setShowOptionImagePicker] = useState(false);
   const [selectedOptionForImage, setSelectedOptionForImage] = useState<number | null>(null);
+  const [imagePickerTarget, setImagePickerTarget] = useState<ProductImagePickerTarget>('product');
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
   const [newVariationName, setNewVariationName] = useState('');
   const [newVariationOptions, setNewVariationOptions] = useState<VariationOption[]>([]);
   const [editingVariationIndex, setEditingVariationIndex] = useState<number | null>(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
-  const [showDirectImagePicker, setShowDirectImagePicker] = useState(false);
 
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
@@ -72,12 +175,144 @@ export default function AddProductPage() {
   });
 
   const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+  const canBuildCombinationMatrix = getCompleteVariations(variations).length >= 2;
 
-  const handleAddImage = (imageUrl: string) => {
-    if (images.includes(imageUrl)) return;
-    setImages(prev => [...prev, imageUrl]);
+  const closeImagePicker = () => {
     setShowImagePicker(false);
-    Haptics.selectionAsync();
+    if (imagePickerTarget === 'variationOption') {
+      setSelectedOptionForImage(null);
+    }
+    setImagePickerTarget('product');
+  };
+
+  const addImageUrlToProduct = (imageUrl: string) => {
+    setImages(prev => prev.includes(imageUrl) ? prev : [...prev, imageUrl]);
+  };
+
+  const uploadPickedImage = async (asset: ImagePicker.ImagePickerAsset) => {
+    const postUrl = await generateUploadUrl();
+    const localResponse = await fetch(asset.uri);
+    const blob = await localResponse.blob();
+    const contentType = asset.mimeType || blob.type || 'image/jpeg';
+
+    const uploadResponse = await fetch(postUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body: blob,
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error(`Image upload failed with status ${uploadResponse.status}`);
+    }
+
+    const uploadResult = await uploadResponse.json() as { storageId?: Id<'_storage'> };
+    if (!uploadResult.storageId) {
+      throw new Error('Image upload did not return a storage ID');
+    }
+
+    const imageUrl = await convex.query(api.files.getUrl, { storageId: uploadResult.storageId });
+    if (!imageUrl) {
+      throw new Error('Uploaded image URL could not be resolved');
+    }
+
+    return imageUrl;
+  };
+
+  const pickAndUploadImage = async (source: ImagePickerSource) => {
+    if (isUploadingImage) return;
+
+    const target = imagePickerTarget;
+    const optionIndex = selectedOptionForImage;
+
+    if (target === 'variationOption' && optionIndex === null) {
+      setAlertConfig({
+        visible: true,
+        title: 'No Option Selected',
+        message: 'Please select a variation option before adding an image.',
+        type: 'warning',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
+      return;
+    }
+
+    try {
+      let result: ImagePicker.ImagePickerResult;
+
+      if (source === 'camera') {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          setAlertConfig({
+            visible: true,
+            title: 'Permission Required',
+            message: 'Camera permission is required to take product photos.',
+            type: 'warning',
+            buttons: [{ text: 'OK', style: 'default' }],
+          });
+          return;
+        }
+
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.85,
+        });
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          setAlertConfig({
+            visible: true,
+            title: 'Permission Required',
+            message: 'Photo library permission is required to add product images.',
+            type: 'warning',
+            buttons: [{ text: 'OK', style: 'default' }],
+          });
+          return;
+        }
+
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: target === 'variationOption',
+          allowsMultipleSelection: target === 'product',
+          selectionLimit: target === 'product' ? 10 : 1,
+          quality: 0.85,
+        });
+      }
+
+      if (result.canceled || result.assets.length === 0) return;
+
+      setIsUploadingImage(true);
+      const assets = target === 'variationOption' ? [result.assets[0]] : result.assets;
+      const uploadedUrls = await Promise.all(assets.map(uploadPickedImage));
+
+      if (target === 'variationOption') {
+        const uploadedUrl = uploadedUrls[0];
+        addImageUrlToProduct(uploadedUrl);
+        updateVariationOption(optionIndex as number, 'image', uploadedUrl);
+      } else {
+        setImages(prev => {
+          const next = [...prev];
+          uploadedUrls.forEach(url => {
+            if (!next.includes(url)) next.push(url);
+          });
+          return next;
+        });
+      }
+
+      closeImagePicker();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error uploading product image:', error);
+      setAlertConfig({
+        visible: true,
+        title: 'Upload Failed',
+        message: 'The image could not be added. Please try again.',
+        type: 'error',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
+    } finally {
+      setIsUploadingImage(false);
+    }
   };
 
   const handleRemoveImage = (index: number) => {
@@ -138,19 +373,8 @@ export default function AddProductPage() {
 
   const openDirectImagePicker = (optionIndex: number) => {
     setSelectedOptionForImage(optionIndex);
-    setShowDirectImagePicker(true);
-  };
-
-  const addDirectImageToOption = (imageUrl: string) => {
-    if (selectedOptionForImage !== null) {
-      if (!images.includes(imageUrl)) {
-        setImages(prev => [...prev, imageUrl]);
-      }
-      updateVariationOption(selectedOptionForImage, 'image', imageUrl);
-      setShowDirectImagePicker(false);
-      setSelectedOptionForImage(null);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
+    setImagePickerTarget('variationOption');
+    setShowImagePicker(true);
   };
 
   const applyPreset = (preset: { name: string; options: string[] }) => {
@@ -269,6 +493,54 @@ export default function AddProductPage() {
     });
   };
 
+  const syncCombinationMatrix = () => {
+    const nextCombinations = buildCombinationMatrix(
+      variations,
+      combinations,
+      parseNumberInput(basePrice)
+    );
+
+    if (nextCombinations.length === 0) {
+      setAlertConfig({
+        visible: true,
+        title: 'Add More Variations',
+        message: 'Combination pricing needs at least two variations with options, such as Class and Size.',
+        type: 'warning',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
+      return;
+    }
+
+    setCombinations(nextCombinations);
+    Haptics.selectionAsync();
+  };
+
+  const clearCombinationMatrix = () => {
+    setAlertConfig({
+      visible: true,
+      title: 'Clear Combination Prices',
+      message: 'This will remove all exact variation prices and the product will use the base price plus option modifiers.',
+      type: 'warning',
+      buttons: [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: () => {
+            setCombinations([]);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+          },
+        },
+      ],
+    });
+  };
+
+  const updateCombination = (index: number, updates: Partial<ProductCombination>) => {
+    setCombinations(prev => prev.map((combination, i) => (
+      i === index ? { ...combination, ...updates } : combination
+    )));
+  };
+
   const handleSave = async () => {
     if (!name.trim()) {
       setAlertConfig({
@@ -325,33 +597,45 @@ export default function AddProductPage() {
       return;
     }
 
+    const parsedBasePrice = parseNumberInput(basePrice);
+    const rebuiltCombinations = combinations.length > 0
+      ? buildCombinationMatrix(variations, combinations, parsedBasePrice)
+      : [];
+    const syncedCombinations = rebuiltCombinations.length > 0
+      ? sanitizeCombinations(rebuiltCombinations)
+      : undefined;
+
     const productData = {
       name: name.trim(),
       description: description.trim(),
       sku: sku.trim().toUpperCase(),
-      basePrice: parseFloat(basePrice),
+      basePrice: parsedBasePrice,
       images,
       categoryId: selectedCategoryId,
       isActive,
       variations,
+      combinations: syncedCombinations ?? [],
       stock: parseInt(stock) || 0,
     };
 
-    if (isEditing && editingProduct) {
-      updateProduct(editingProduct.id, productData);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setAlertConfig({
-        visible: true,
-        title: 'Product Updated',
-        message: `${productData.name} has been updated successfully.`,
-        type: 'success',
-        buttons: [{
-          text: 'OK',
-          style: 'default',
-          onPress: () => router.back(),
-        }],
-      });
-    } else {
+    try {
+      if (isEditing && editingProduct) {
+        await updateProduct(editingProduct.id, productData);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setAlertConfig({
+          visible: true,
+          title: 'Product Updated',
+          message: `${productData.name} has been updated successfully.`,
+          type: 'success',
+          buttons: [{
+            text: 'OK',
+            style: 'default',
+            onPress: () => router.back(),
+          }],
+        });
+        return;
+      }
+
       const newProduct = await addProduct(productData);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setAlertConfig({
@@ -365,7 +649,99 @@ export default function AddProductPage() {
           onPress: () => router.back(),
         }],
       });
+    } catch (error) {
+      console.error('Error saving product:', error);
+      setAlertConfig({
+        visible: true,
+        title: 'Save Failed',
+        message: 'The product could not be saved. Please try again.',
+        type: 'error',
+        buttons: [{ text: 'OK', style: 'default' }],
+      });
     }
+  };
+
+  const renderCombinationPricing = () => {
+    if (!canBuildCombinationMatrix && combinations.length === 0) return null;
+
+    return (
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionHeaderText}>
+            <Text style={styles.sectionTitle}>Combination Prices</Text>
+            <Text style={styles.sectionSubtitle}>Set exact prices for each selected variation combination</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.addVariationBtn}
+            onPress={syncCombinationMatrix}
+          >
+            <RefreshCw size={18} color={Colors.light.primary} />
+            <Text style={styles.addVariationText}>{combinations.length > 0 ? 'Sync' : 'Create'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {combinations.length > 0 ? (
+          <>
+            <View style={styles.combinationSummary}>
+              <Text style={styles.combinationSummaryText}>
+                {combinations.length} priced combination{combinations.length !== 1 ? 's' : ''}
+              </Text>
+              <TouchableOpacity onPress={clearCombinationMatrix}>
+                <Text style={styles.clearCombinationText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+
+            {combinations.map((combination, index) => (
+              <View key={`${combination.id}-${index}`} style={styles.combinationCard}>
+                <Text style={styles.combinationTitle}>{getCombinationLabel(combination)}</Text>
+                <View style={styles.combinationOptions}>
+                  {combination.options.map(option => (
+                    <View key={`${option.name}-${option.value}`} style={styles.combinationOptionChip}>
+                      <Text style={styles.combinationOptionText}>{option.name}: {option.value}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.optionRow}>
+                  <View style={styles.optionHalf}>
+                    <Input
+                      label="Price"
+                      placeholder="0.00"
+                      value={combination.price.toString()}
+                      onChangeText={(value) => updateCombination(index, { price: parseNumberInput(value) })}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                  <View style={styles.optionHalf}>
+                    <Input
+                      label="Stock"
+                      placeholder="0"
+                      value={combination.stock?.toString() ?? ''}
+                      onChangeText={(value) => updateCombination(index, { stock: parseOptionalIntegerInput(value) })}
+                      keyboardType="number-pad"
+                    />
+                  </View>
+                </View>
+
+                <Input
+                  label="SKU"
+                  placeholder="Optional combination SKU"
+                  value={combination.sku ?? ''}
+                  onChangeText={(value) => updateCombination(index, { sku: value })}
+                />
+              </View>
+            ))}
+          </>
+        ) : (
+          <View style={styles.emptyVariations}>
+            <Text style={styles.emptyVariationsText}>No combination prices yet</Text>
+            <Text style={styles.emptyVariationsSubtext}>
+              Create a matrix after adding variations like Class and Size
+            </Text>
+          </View>
+        )}
+      </View>
+    );
   };
 
   const renderOptionImagePicker = () => (
@@ -423,56 +799,6 @@ export default function AddProductPage() {
             </View>
           )}
 
-          <View style={styles.bottomPadding} />
-        </ScrollView>
-      </SafeAreaView>
-    </Modal>
-  );
-
-  const renderDirectImagePicker = () => (
-    <Modal
-      visible={showDirectImagePicker}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={() => setShowDirectImagePicker(false)}
-    >
-      <SafeAreaView style={styles.modalContainer} edges={['top', 'bottom']}>
-        <View style={styles.modalHeader}>
-          <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowDirectImagePicker(false)}>
-            <X size={24} color={Colors.light.text} />
-          </TouchableOpacity>
-          <Text style={styles.modalTitle}>Add Image to Option</Text>
-          <View style={{ width: 40 }} />
-        </View>
-
-        <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.pickerSubtitle}>Select an image (will be added to product images)</Text>
-          <View style={styles.imageGrid}>
-            {sampleImages.map((url, index) => {
-              const currentOption = selectedOptionForImage !== null
-                ? newVariationOptions[selectedOptionForImage]
-                : null;
-              const isSelected = currentOption?.image === url;
-
-              return (
-                <TouchableOpacity
-                  key={index}
-                  style={[
-                    styles.imageOption,
-                    isSelected && styles.imageOptionSelected,
-                  ]}
-                  onPress={() => addDirectImageToOption(url)}
-                >
-                  <Image source={{ uri: url }} style={styles.imageOptionImg} contentFit="cover" />
-                  {isSelected && (
-                    <View style={styles.imageSelectedOverlay}>
-                      <Check size={24} color="#fff" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
           <View style={styles.bottomPadding} />
         </ScrollView>
       </SafeAreaView>
@@ -608,8 +934,15 @@ export default function AddProductPage() {
                           style={styles.linkedImageBtn}
                           onPress={() => openOptionImagePicker(index)}
                         >
-                          <Edit2 size={16} color={Colors.light.primary} />
-                          <Text style={styles.linkedImageBtnText}>Change</Text>
+                          <Link2 size={16} color={Colors.light.primary} />
+                          <Text style={styles.linkedImageBtnText}>Link</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.linkedImageBtn, styles.addNewImageBtn]}
+                          onPress={() => openDirectImagePicker(index)}
+                        >
+                          <ImagePlus size={16} color={Colors.light.success} />
+                          <Text style={[styles.linkedImageBtnText, styles.addNewImageText]}>Upload</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.linkedImageBtn, styles.unlinkBtn]}
@@ -692,39 +1025,61 @@ export default function AddProductPage() {
       visible={showImagePicker}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={() => setShowImagePicker(false)}
+      onRequestClose={() => {
+        if (!isUploadingImage) closeImagePicker();
+      }}
     >
       <SafeAreaView style={styles.modalContainer} edges={['top', 'bottom']}>
         <View style={styles.modalHeader}>
-          <TouchableOpacity style={styles.modalCloseBtn} onPress={() => setShowImagePicker(false)}>
+          <TouchableOpacity
+            style={styles.modalCloseBtn}
+            onPress={closeImagePicker}
+            disabled={isUploadingImage}
+          >
             <X size={24} color={Colors.light.text} />
           </TouchableOpacity>
-          <Text style={styles.modalTitle}>Select Image</Text>
+          <Text style={styles.modalTitle}>
+            {imagePickerTarget === 'variationOption' ? 'Add Option Image' : 'Add Product Images'}
+          </Text>
           <View style={{ width: 40 }} />
         </View>
 
         <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
-          <Text style={styles.pickerSubtitle}>Sample Product Images</Text>
-          <View style={styles.imageGrid}>
-            {sampleImages.map((url, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.imageOption,
-                  images.includes(url) && styles.imageOptionSelected,
-                ]}
-                onPress={() => handleAddImage(url)}
-                disabled={images.includes(url)}
-              >
-                <Image source={{ uri: url }} style={styles.imageOptionImg} contentFit="cover" />
-                {images.includes(url) && (
-                  <View style={styles.imageSelectedOverlay}>
-                    <Check size={24} color="#fff" />
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
+          <Text style={styles.pickerSubtitle}>Choose image source</Text>
+          <View style={styles.imageSourceOptions}>
+            <TouchableOpacity
+              style={[styles.sourceOption, isUploadingImage && styles.sourceOptionDisabled]}
+              onPress={() => pickAndUploadImage('library')}
+              disabled={isUploadingImage}
+            >
+              <View style={styles.sourceIconContainer}>
+                <ImagePlus size={26} color={Colors.light.primary} />
+              </View>
+              <Text style={styles.sourceText}>Choose from Phone</Text>
+              <Text style={styles.sourceSubtext}>
+                {imagePickerTarget === 'product' ? 'Select one or more images' : 'Select one image'}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.sourceOption, isUploadingImage && styles.sourceOptionDisabled]}
+              onPress={() => pickAndUploadImage('camera')}
+              disabled={isUploadingImage}
+            >
+              <View style={styles.sourceIconContainer}>
+                <Camera size={26} color={Colors.light.primary} />
+              </View>
+              <Text style={styles.sourceText}>Take Photo</Text>
+              <Text style={styles.sourceSubtext}>Use the camera</Text>
+            </TouchableOpacity>
           </View>
+
+          {isUploadingImage && (
+            <View style={styles.uploadStatus}>
+              <ActivityIndicator size="small" color={Colors.light.primary} />
+              <Text style={styles.uploadStatusText}>Uploading image...</Text>
+            </View>
+          )}
 
           <View style={styles.bottomPadding} />
         </ScrollView>
@@ -764,7 +1119,13 @@ export default function AddProductPage() {
                 )}
               </View>
             ))}
-            <TouchableOpacity style={styles.addImageBtn} onPress={() => setShowImagePicker(true)}>
+            <TouchableOpacity
+              style={styles.addImageBtn}
+              onPress={() => {
+                setImagePickerTarget('product');
+                setShowImagePicker(true);
+              }}
+            >
               <ImagePlus size={24} color={Colors.light.textTertiary} />
               <Text style={styles.addImageText}>Add Image</Text>
             </TouchableOpacity>
@@ -936,6 +1297,8 @@ export default function AddProductPage() {
           )}
         </View>
 
+        {renderCombinationPricing()}
+
         <View style={styles.section}>
           <TouchableOpacity
             style={styles.activeToggle}
@@ -958,11 +1321,12 @@ export default function AddProductPage() {
 
         <View style={styles.saveSection}>
           <Button
-            title={isEditing ? "Update Product" : "Save Product"}
+            title={isUploadingImage ? "Uploading Images..." : (isEditing ? "Update Product" : "Save Product")}
             onPress={handleSave}
             fullWidth
             size="lg"
-            icon={<Check size={20} color={Colors.light.primaryForeground} />}
+            disabled={isUploadingImage}
+            icon={isUploadingImage ? undefined : <Check size={20} color={Colors.light.primaryForeground} />}
           />
         </View>
 
@@ -971,7 +1335,6 @@ export default function AddProductPage() {
 
       {renderImagePicker()}
       {renderVariationModal()}
-      {renderDirectImagePicker()}
       {renderPresetPicker()}
 
       <ThemedAlert
@@ -1024,6 +1387,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 12,
+  },
+  sectionHeaderText: {
+    flex: 1,
+    paddingRight: 12,
   },
   sectionTitle: {
     fontSize: 13,
@@ -1289,6 +1656,57 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: 'center',
   },
+  combinationSummary: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  combinationSummaryText: {
+    fontSize: 13,
+    fontWeight: '500' as const,
+    color: Colors.light.textSecondary,
+  },
+  clearCombinationText: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: Colors.light.danger,
+  },
+  combinationCard: {
+    backgroundColor: Colors.light.surface,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  combinationTitle: {
+    fontSize: 15,
+    fontWeight: '600' as const,
+    color: Colors.light.text,
+    marginBottom: 10,
+  },
+  combinationOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  combinationOptionChip: {
+    backgroundColor: Colors.light.primaryLight,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  combinationOptionText: {
+    fontSize: 12,
+    color: Colors.light.textSecondary,
+    fontWeight: '500' as const,
+  },
   activeToggle: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1387,6 +1805,57 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     paddingHorizontal: 16,
     gap: 10,
+  },
+  imageSourceOptions: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  sourceOption: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 136,
+    padding: 16,
+    backgroundColor: Colors.light.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+  },
+  sourceOptionDisabled: {
+    opacity: 0.55,
+  },
+  sourceIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: Colors.light.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  sourceText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.light.text,
+    textAlign: 'center',
+  },
+  sourceSubtext: {
+    fontSize: 12,
+    color: Colors.light.textTertiary,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  uploadStatus: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 24,
+  },
+  uploadStatusText: {
+    fontSize: 14,
+    color: Colors.light.textSecondary,
   },
   imageOption: {
     width: '31%',

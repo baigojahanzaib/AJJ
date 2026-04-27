@@ -16,6 +16,7 @@ import { useOffline } from './OfflineContext';
 import * as Haptics from 'expo-haptics';
 import { useNotification } from './NotificationContext';
 import { useAuth } from './AuthContext';
+import type { ProductCsvImportProduct } from '../lib/product-csv';
 import {
   loadImageCacheIndex,
   cacheProductImages,
@@ -83,6 +84,7 @@ function mapOrder(doc: any): Order {
     previousVersion: doc.previousVersion,
     editLog: doc.editLog,
     ecwidOrderId: doc.ecwidOrderId,
+    lastSyncedAt: doc.lastSyncedAt,
   };
 }
 
@@ -173,6 +175,7 @@ export const [DataProvider, useData] = createContextHook(() => {
   const createProductMutation = useMutation(api.products.create);
   const updateProductMutation = useMutation(api.products.update);
   const removeProductMutation = useMutation(api.products.remove);
+  const upsertImportedProductMutation = useMutation(api.products.upsertImported);
   const createCategoryMutation = useMutation(api.categories.create);
   const updateCategoryMutation = useMutation(api.categories.update);
   const updateOrderMutation = useMutation(api.orders.update);
@@ -247,7 +250,6 @@ export const [DataProvider, useData] = createContextHook(() => {
     setIsSyncing(true);
     console.log('[Data] Starting synchronization...');
 
-    const currentProdCache = seed?.productsCache ?? cachedProducts;
     const currentCatCache = seed?.categoriesCache ?? cachedCategories;
     const currentCustCache = seed?.customersCache ?? cachedCustomers;
     let imageSyncSummary: { ready: number; total: number } | null = null;
@@ -361,7 +363,6 @@ export const [DataProvider, useData] = createContextHook(() => {
   }, [
     cachedCategories,
     cachedCustomers,
-    cachedProducts,
     convex,
     isAuthenticated,
     isOfflineMode,
@@ -550,26 +551,125 @@ export const [DataProvider, useData] = createContextHook(() => {
       description: product.description,
       sku: product.sku,
       basePrice: product.basePrice,
+      compareAtPrice: product.compareAtPrice,
       images: product.images,
       categoryId: product.categoryId,
       isActive: product.isActive,
       variations: product.variations,
+      combinations: product.combinations,
       stock: product.stock,
+      moq: product.moq,
+      ribbon: product.ribbon,
+      ribbonColor: product.ribbonColor,
+      ecwidId: product.ecwidId,
     });
-    return { ...product, id: id as string, createdAt: new Date().toISOString() };
-  }, [createProductMutation]);
+    const createdProduct = { ...product, id: id as string, createdAt: new Date().toISOString() };
+    const nextProducts = [createdProduct, ...cachedProducts.filter((item) => item.id !== createdProduct.id)];
+    setCachedProducts(nextProducts);
+    await saveProducts(nextProducts);
+    return createdProduct;
+  }, [cachedProducts, createProductMutation]);
 
   const updateProduct = useCallback(async (id: string, updates: Partial<Product>) => {
     const safeUpdates = withoutId(updates);
-    await updateProductMutation({
+    const updatedProduct = await updateProductMutation({
       id: id as unknown as Id<"products">,
       ...safeUpdates,
     });
-  }, [updateProductMutation]);
+    if (updatedProduct) {
+      const mappedProduct = mapProduct(updatedProduct);
+      const nextProducts = cachedProducts.map((product) => product.id === id ? mappedProduct : product);
+      setCachedProducts(nextProducts);
+      await saveProducts(nextProducts);
+    }
+  }, [cachedProducts, updateProductMutation]);
 
   const deleteProduct = useCallback(async (id: string) => {
     await removeProductMutation({ id: id as unknown as Id<"products"> });
-  }, [removeProductMutation]);
+    const nextProducts = cachedProducts.map((product) => (
+      product.id === id ? { ...product, isActive: false } : product
+    ));
+    setCachedProducts(nextProducts);
+    await saveProducts(nextProducts);
+  }, [cachedProducts, removeProductMutation]);
+
+  const importProducts = useCallback(async (importedProducts: ProductCsvImportProduct[]) => {
+    if (isOfflineMode) {
+      throw new Error('Product CSV import requires an internet connection.');
+    }
+
+    const importedProductDocs: Product[] = [];
+    const importedCategoryDocs: Category[] = [];
+    const failures: { sku: string; message: string }[] = [];
+    let created = 0;
+    let updated = 0;
+
+    for (const importedProduct of importedProducts) {
+      try {
+        const result: any = await upsertImportedProductMutation(compactObject({
+          id: importedProduct.id,
+          ecwidId: importedProduct.ecwidId,
+          name: importedProduct.name,
+          description: importedProduct.description,
+          sku: importedProduct.sku,
+          basePrice: importedProduct.basePrice,
+          compareAtPrice: importedProduct.compareAtPrice,
+          images: importedProduct.images,
+          categoryId: importedProduct.categoryId,
+          categoryName: importedProduct.categoryName,
+          isActive: importedProduct.isActive,
+          variations: importedProduct.variations,
+          combinations: importedProduct.combinations,
+          stock: importedProduct.stock,
+          moq: importedProduct.moq,
+          ribbon: importedProduct.ribbon,
+          ribbonColor: importedProduct.ribbonColor,
+        }) as any);
+
+        if (result?.product) {
+          importedProductDocs.push(mapProduct(result.product));
+        }
+        if (result?.category) {
+          importedCategoryDocs.push(mapCategory(result.category));
+        }
+        if (result?.action === 'created') created += 1;
+        if (result?.action === 'updated') updated += 1;
+      } catch (error) {
+        failures.push({
+          sku: importedProduct.sku,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (importedProductDocs.length > 0) {
+      const productMap = new Map(cachedProducts.map((product) => [product.id, product]));
+      importedProductDocs.forEach((product) => productMap.set(product.id, product));
+      const nextProducts = Array.from(productMap.values());
+      setCachedProducts(nextProducts);
+      await saveProducts(nextProducts);
+    }
+
+    if (importedCategoryDocs.length > 0) {
+      const categoryMap = new Map(cachedCategories.map((category) => [category.id, category]));
+      importedCategoryDocs.forEach((category) => categoryMap.set(category.id, category));
+      const nextCategories = Array.from(categoryMap.values());
+      setCachedCategories(nextCategories);
+      await saveCategories(nextCategories);
+    }
+
+    return {
+      created,
+      updated,
+      failed: failures.length,
+      failures,
+    };
+  }, [
+    cachedCategories,
+    cachedProducts,
+    isOfflineMode,
+    upsertImportedProductMutation,
+  ]);
 
   const addCategory = useCallback(async (category: Omit<Category, 'id' | 'createdAt'>) => {
     const id = await createCategoryMutation({
@@ -939,6 +1039,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     addProduct,
     updateProduct,
     deleteProduct,
+    importProducts,
     addCustomer,
     updateCustomer,
     addCategory,

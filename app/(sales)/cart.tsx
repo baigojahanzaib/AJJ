@@ -314,6 +314,13 @@ export default function SalesCart() {
     handleSubmitOrder(selectedCustomer, confirmedCustomer);
   };
 
+  const resetCartDraft = useCallback(() => {
+    clearCart();
+    setSelectedCustomer(null);
+    setConfirmedCustomer(null);
+    setIsOrderTaxEnabled(taxSettings.enabled);
+  }, [clearCart, taxSettings.enabled]);
+
   const handleSubmitOrder = async (customer?: Customer | null, newCustomerData?: CustomerDraft) => {
     const customerData = customer
       ? { name: customer.name, phone: customer.phone, email: customer.email, address: customer.address, latitude: customer.latitude, longitude: customer.longitude }
@@ -409,6 +416,7 @@ export default function SalesCart() {
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setShowCustomerModal(false);
+      resetCartDraft();
 
       showAlert({
         title: 'Order Submitted!',
@@ -420,18 +428,7 @@ export default function SalesCart() {
             style: 'default',
             onPress: async () => {
               try {
-                // Generate and share PDF
-                // We don't await here inside the onPress immediately if we want the modal to close?
-                // Actually, best to clear cart and navigate first, then share, or share then navigate.
-                // Sharing keeps the app in foreground but opens overlay.
-                // Let's clear and navigate, then share.
-                clearCart();
-                setSelectedCustomer(null);
-
-                // Navigate to orders list first so we are on a stable screen
                 router.push('/(sales)/orders');
-
-                // Small delay to allow navigation transition
                 setTimeout(() => {
                   generateAndSharePDF(newOrder);
                 }, 500);
@@ -444,18 +441,12 @@ export default function SalesCart() {
             text: 'View Orders',
             style: 'default',
             onPress: () => {
-              clearCart();
-              setSelectedCustomer(null);
               router.push('/(sales)/orders');
             },
           },
           {
             text: 'New Order',
             style: 'cancel',
-            onPress: () => {
-              clearCart();
-              setSelectedCustomer(null);
-            },
           },
         ],
       });
@@ -829,6 +820,14 @@ export default function SalesCart() {
             style={styles.browseButton}
           />
         </View>
+        <ThemedAlert
+          visible={alertConfig.visible}
+          title={alertConfig.title}
+          message={alertConfig.message}
+          type={alertConfig.type}
+          buttons={alertConfig.buttons}
+          onClose={hideAlert}
+        />
       </SafeAreaView>
     );
   }
@@ -855,8 +854,7 @@ export default function SalesCart() {
                   { text: 'Cancel', style: 'cancel' },
                   {
                     text: 'Clear', style: 'destructive', onPress: () => {
-                      clearCart();
-                      setSelectedCustomer(null);
+                      resetCartDraft();
                     }
                   },
                 ],

@@ -12,15 +12,18 @@ import { User, UserRole } from '@/types';
 import * as ImagePicker from 'expo-image-picker';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
+import { DEFAULT_AVATARS, DEFAULT_AVATAR_KEYS } from '@/constants/avatars';
+
+export type UserFormData = Omit<User, 'id' | 'createdAt' | 'password'> & {
+  password?: string;
+};
 
 interface UserFormModalProps {
   visible: boolean;
   onClose: () => void;
-  onSave: (userData: Omit<User, 'id' | 'createdAt'>) => void;
+  onSave: (userData: UserFormData) => void;
   editingUser?: User | null;
 }
-
-import { DEFAULT_AVATARS, DEFAULT_AVATAR_KEYS } from '@/constants/avatars';
 
 const sampleAvatars = DEFAULT_AVATAR_KEYS;
 

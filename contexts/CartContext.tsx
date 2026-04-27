@@ -1,20 +1,126 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import createContextHook from '@nkzw/create-context-hook';
 import { CartItem, Product, SelectedVariation } from '@/types';
 import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
+import { useAuth } from '@/contexts/AuthContext';
+
+const CART_STORAGE_KEY_PREFIX = '@salesapp_cart_draft';
+
+const createEmptyCustomerInfo = () => ({
+  name: '',
+  phone: '',
+  email: '',
+  address: '',
+  latitude: undefined as number | undefined,
+  longitude: undefined as number | undefined,
+});
+
+type CartDraft = {
+  version: 1;
+  updatedAt: string;
+  items: CartItem[];
+  customerInfo: ReturnType<typeof createEmptyCustomerInfo>;
+  notes: string;
+};
 
 export const [CartProvider, useCart] = createContextHook(() => {
   const { taxSettings } = useRemoteConfig();
+  const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [items, setItems] = useState<CartItem[]>([]);
-  const [customerInfo, setCustomerInfo] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    address: '',
-    latitude: undefined as number | undefined,
-    longitude: undefined as number | undefined,
-  });
+  const [customerInfo, setCustomerInfo] = useState(createEmptyCustomerInfo);
   const [notes, setNotes] = useState('');
+  const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
+  const [hydratedStorageKey, setHydratedStorageKey] = useState<string | null>(null);
+
+  const cartStorageKey = user?.id ? `${CART_STORAGE_KEY_PREFIX}:${user.id}` : null;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadCartDraft = async () => {
+      setHasHydratedDraft(false);
+      setHydratedStorageKey(null);
+
+      if (isAuthLoading) return;
+
+      if (!isAuthenticated || !cartStorageKey) {
+        setItems([]);
+        setCustomerInfo(createEmptyCustomerInfo());
+        setNotes('');
+        setHasHydratedDraft(true);
+        return;
+      }
+
+      try {
+        const rawDraft = await AsyncStorage.getItem(cartStorageKey);
+        if (!isMounted) return;
+
+        if (!rawDraft) {
+          setItems([]);
+          setCustomerInfo(createEmptyCustomerInfo());
+          setNotes('');
+          return;
+        }
+
+        const parsed = JSON.parse(rawDraft) as Partial<CartDraft>;
+        setItems(Array.isArray(parsed.items) ? parsed.items : []);
+        setCustomerInfo({
+          ...createEmptyCustomerInfo(),
+          ...(parsed.customerInfo ?? {}),
+        });
+        setNotes(typeof parsed.notes === 'string' ? parsed.notes : '');
+      } catch (error) {
+        console.error('[Cart] Error loading saved cart draft:', error);
+        if (isMounted) {
+          setItems([]);
+          setCustomerInfo(createEmptyCustomerInfo());
+          setNotes('');
+        }
+      } finally {
+        if (isMounted) {
+          setHydratedStorageKey(cartStorageKey);
+          setHasHydratedDraft(true);
+        }
+      }
+    };
+
+    loadCartDraft();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [cartStorageKey, isAuthenticated, isAuthLoading]);
+
+  useEffect(() => {
+    if (!hasHydratedDraft || !cartStorageKey || hydratedStorageKey !== cartStorageKey) return;
+
+    const hasCustomerInfo = Object.values(customerInfo).some(value => value !== undefined && value !== '');
+    const hasDraft = items.length > 0 || hasCustomerInfo || notes.trim().length > 0;
+
+    const persistCartDraft = async () => {
+      try {
+        if (!hasDraft) {
+          await AsyncStorage.removeItem(cartStorageKey);
+          return;
+        }
+
+        const draft: CartDraft = {
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          items,
+          customerInfo,
+          notes,
+        };
+
+        await AsyncStorage.setItem(cartStorageKey, JSON.stringify(draft));
+      } catch (error) {
+        console.error('[Cart] Error saving cart draft:', error);
+      }
+    };
+
+    persistCartDraft();
+  }, [cartStorageKey, customerInfo, hasHydratedDraft, hydratedStorageKey, items, notes]);
 
   const calculateItemPrice = (product: Product, selectedVariations: SelectedVariation[]): number => {
     // Check for matching combination first
@@ -128,9 +234,14 @@ export const [CartProvider, useCart] = createContextHook(() => {
   const clearCart = useCallback(() => {
     console.log('[Cart] Clearing cart');
     setItems([]);
-    setCustomerInfo({ name: '', phone: '', email: '', address: '', latitude: undefined, longitude: undefined });
+    setCustomerInfo(createEmptyCustomerInfo());
     setNotes('');
-  }, []);
+    if (cartStorageKey) {
+      AsyncStorage.removeItem(cartStorageKey).catch(error => {
+        console.error('[Cart] Error clearing saved cart draft:', error);
+      });
+    }
+  }, [cartStorageKey]);
 
   const subtotal = useMemo(() => {
     return items.reduce((sum, item) => sum + item.totalPrice, 0);

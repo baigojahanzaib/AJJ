@@ -42,8 +42,8 @@ export default function Input({
         <TextInput
           style={[
             styles.input,
-            leftIcon && styles.inputWithLeftIcon,
-            (rightIcon || isPassword) && styles.inputWithRightIcon,
+            leftIcon ? styles.inputWithLeftIcon : null,
+            (rightIcon || isPassword) ? styles.inputWithRightIcon : null,
           ]}
           placeholderTextColor={Colors.light.inputPlaceholder}
           secureTextEntry={isPassword && !showPassword}

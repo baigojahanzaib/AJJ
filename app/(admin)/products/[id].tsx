@@ -96,6 +96,7 @@ export default function AdminProductDetail() {
     };
 
     const totalVariationOptions = product.variations.reduce((sum, v) => sum + v.options.length, 0);
+    const totalCombinationPrices = product.combinations?.length ?? 0;
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
@@ -202,6 +203,7 @@ export default function AdminProductDetail() {
                                 <Text style={styles.infoLabel}>Variations</Text>
                                 <Text style={styles.infoValue}>
                                     {product.variations.length} type{product.variations.length !== 1 ? 's' : ''}, {totalVariationOptions} option{totalVariationOptions !== 1 ? 's' : ''}
+                                    {totalCombinationPrices > 0 ? `, ${totalCombinationPrices} prices` : ''}
                                 </Text>
                             </View>
                         </View>
@@ -245,6 +247,37 @@ export default function AdminProductDetail() {
                         </View>
                     )}
 
+                    {totalCombinationPrices > 0 && (
+                        <View style={styles.section}>
+                            <Text style={styles.sectionTitle}>Combination Prices</Text>
+                            {product.combinations?.map((combination, index) => (
+                                <Card key={`${combination.id}-${index}`} style={styles.combinationCard}>
+                                    <View style={styles.combinationHeader}>
+                                        <Text style={styles.combinationName}>
+                                            {combination.options.map(option => option.value).join(' / ')}
+                                        </Text>
+                                        <Text style={styles.combinationPrice}>R{combination.price.toFixed(2)}</Text>
+                                    </View>
+                                    <View style={styles.combinationOptions}>
+                                        {combination.options.map(option => (
+                                            <View key={`${option.name}-${option.value}`} style={styles.combinationOptionChip}>
+                                                <Text style={styles.combinationOptionText}>{option.name}: {option.value}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                    <View style={styles.combinationMeta}>
+                                        {combination.sku && (
+                                            <Text style={styles.combinationMetaText}>SKU: {combination.sku}</Text>
+                                        )}
+                                        {combination.stock !== undefined && (
+                                            <Text style={styles.combinationMetaText}>Stock: {combination.stock}</Text>
+                                        )}
+                                    </View>
+                                </Card>
+                            ))}
+                        </View>
+                    )}
+
                     <View style={styles.section}>
                         <Text style={styles.sectionTitle}>Actions</Text>
                         <View style={styles.actionsContainer}>
@@ -260,7 +293,7 @@ export default function AdminProductDetail() {
                                 onPress={handleDelete}
                                 variant="outline"
                                 icon={<Trash2 size={18} color={Colors.light.danger} />}
-                                style={[styles.actionButton, styles.deleteButton]}
+                                style={{ ...styles.actionButton, ...styles.deleteButton }}
                                 textStyle={styles.deleteButtonText}
                             />
                         </View>
@@ -557,6 +590,53 @@ const styles = StyleSheet.create({
         fontSize: 11,
         color: Colors.light.textTertiary,
         marginTop: 2,
+    },
+    combinationCard: {
+        marginBottom: 12,
+    },
+    combinationHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: 12,
+        marginBottom: 10,
+    },
+    combinationName: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: '600' as const,
+        color: Colors.light.text,
+    },
+    combinationPrice: {
+        fontSize: 15,
+        fontWeight: '700' as const,
+        color: Colors.light.primary,
+    },
+    combinationOptions: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        marginBottom: 10,
+    },
+    combinationOptionChip: {
+        backgroundColor: Colors.light.surfaceSecondary,
+        borderRadius: 14,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+    },
+    combinationOptionText: {
+        fontSize: 12,
+        color: Colors.light.textSecondary,
+        fontWeight: '500' as const,
+    },
+    combinationMeta: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 12,
+    },
+    combinationMetaText: {
+        fontSize: 12,
+        color: Colors.light.textTertiary,
     },
     actionsContainer: {
         gap: 12,

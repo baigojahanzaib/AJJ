@@ -117,6 +117,17 @@ const productVariationValidator = v.object({
     options: v.array(variationOptionValidator),
 });
 
+const productCombinationValidator = v.object({
+    id: v.union(v.string(), v.number()),
+    options: v.array(v.object({
+        name: v.string(),
+        value: v.string(),
+    })),
+    price: v.number(),
+    sku: v.optional(v.string()),
+    stock: v.optional(v.number()),
+});
+
 // Create a new product
 export const create = mutation({
     args: {
@@ -124,17 +135,23 @@ export const create = mutation({
         description: v.string(),
         sku: v.string(),
         basePrice: v.number(),
+        compareAtPrice: v.optional(v.number()),
         images: v.array(v.string()),
         categoryId: v.string(),
         isActive: v.boolean(),
         variations: v.array(productVariationValidator),
+        combinations: v.optional(v.array(productCombinationValidator)),
         stock: v.number(),
         moq: v.optional(v.number()),
+        ribbon: v.optional(v.string()),
+        ribbonColor: v.optional(v.string()),
+        ecwidId: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
         return await ctx.db.insert("products", {
             ...args,
             createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
         });
     },
 });
@@ -147,12 +164,17 @@ export const update = mutation({
         description: v.optional(v.string()),
         sku: v.optional(v.string()),
         basePrice: v.optional(v.number()),
+        compareAtPrice: v.optional(v.number()),
         images: v.optional(v.array(v.string())),
         categoryId: v.optional(v.string()),
         isActive: v.optional(v.boolean()),
         variations: v.optional(v.array(productVariationValidator)),
+        combinations: v.optional(v.array(productCombinationValidator)),
         stock: v.optional(v.number()),
         moq: v.optional(v.number()),
+        ribbon: v.optional(v.string()),
+        ribbonColor: v.optional(v.string()),
+        ecwidId: v.optional(v.number()),
     },
     handler: async (ctx, args) => {
         const { id, ...updates } = args;
@@ -167,11 +189,140 @@ export const update = mutation({
     },
 });
 
+export const upsertImported = mutation({
+    args: {
+        id: v.optional(v.string()),
+        ecwidId: v.optional(v.number()),
+        name: v.string(),
+        description: v.string(),
+        sku: v.string(),
+        basePrice: v.number(),
+        compareAtPrice: v.optional(v.number()),
+        images: v.array(v.string()),
+        categoryId: v.optional(v.string()),
+        categoryName: v.optional(v.string()),
+        isActive: v.boolean(),
+        variations: v.array(productVariationValidator),
+        combinations: v.optional(v.array(productCombinationValidator)),
+        stock: v.number(),
+        moq: v.optional(v.number()),
+        ribbon: v.optional(v.string()),
+        ribbonColor: v.optional(v.string()),
+    },
+    handler: async (ctx, args) => {
+        let existing = null;
+
+        if (args.id) {
+            try {
+                existing = await ctx.db.get(args.id as any);
+            } catch {
+                existing = null;
+            }
+        }
+
+        if (!existing && args.ecwidId !== undefined) {
+            existing = await ctx.db
+                .query("products")
+                .withIndex("by_ecwidId", (q) => q.eq("ecwidId", args.ecwidId))
+                .first();
+        }
+
+        if (!existing && args.sku) {
+            existing = await ctx.db
+                .query("products")
+                .withIndex("by_sku", (q) => q.eq("sku", args.sku))
+                .first();
+        }
+
+        let resolvedCategoryId = "";
+        if (args.categoryId) {
+            try {
+                const category = await ctx.db.get(args.categoryId as any);
+                if (category) resolvedCategoryId = category._id;
+            } catch {
+                resolvedCategoryId = "";
+            }
+        }
+
+        const categoryName = args.categoryName?.trim();
+        if (!resolvedCategoryId && categoryName) {
+            const categories = await ctx.db.query("categories").collect();
+            const matchingCategory = categories.find(
+                (category) => category.name.trim().toLowerCase() === categoryName.toLowerCase()
+            );
+
+            resolvedCategoryId = matchingCategory?._id ?? await ctx.db.insert("categories", {
+                name: categoryName,
+                description: `Imported category: ${categoryName}`,
+                isActive: true,
+                createdAt: new Date().toISOString(),
+            });
+        }
+
+        if (!resolvedCategoryId) {
+            const uncategorized = await ctx.db
+                .query("categories")
+                .filter((q) => q.eq(q.field("name"), "Uncategorized"))
+                .first();
+
+            resolvedCategoryId = uncategorized?._id ?? await ctx.db.insert("categories", {
+                name: "Uncategorized",
+                description: "Products without a category",
+                isActive: true,
+                createdAt: new Date().toISOString(),
+            });
+        }
+
+        const now = new Date().toISOString();
+        const productData = {
+            name: args.name,
+            description: args.description,
+            sku: args.sku,
+            basePrice: args.basePrice,
+            compareAtPrice: args.compareAtPrice,
+            images: args.images,
+            categoryId: resolvedCategoryId,
+            isActive: args.isActive,
+            variations: args.variations,
+            combinations: args.combinations,
+            stock: args.stock,
+            moq: args.moq,
+            ribbon: args.ribbon,
+            ribbonColor: args.ribbonColor,
+            ecwidId: args.ecwidId,
+            updatedAt: now,
+        };
+
+        if (existing) {
+            const cleanUpdates = Object.fromEntries(
+                Object.entries(productData).filter(([_, value]) => value !== undefined)
+            );
+            await ctx.db.patch(existing._id, cleanUpdates);
+            return {
+                action: "updated",
+                product: await ctx.db.get(existing._id),
+                category: await ctx.db.get(resolvedCategoryId as any),
+            };
+        }
+
+        const id = await ctx.db.insert("products", {
+            ...productData,
+            createdAt: now,
+        });
+
+        return {
+            action: "created",
+            product: await ctx.db.get(id),
+            category: await ctx.db.get(resolvedCategoryId as any),
+        };
+    },
+});
+
 // Delete product (soft delete by setting isActive to false)
 export const remove = mutation({
     args: { id: v.id("products") },
     handler: async (ctx, args) => {
-        await ctx.db.patch(args.id, { isActive: false });
+        await ctx.db.patch(args.id, { isActive: false, updatedAt: new Date().toISOString() });
     },
 });
 
