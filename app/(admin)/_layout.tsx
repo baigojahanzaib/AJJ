@@ -67,13 +67,6 @@ export default function AdminTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="add-product"
-        options={{
-          href: null,
-        }}
-      />
-
-      <Tabs.Screen
         name="ecwid-sync"
         options={{
           href: null,

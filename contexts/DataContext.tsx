@@ -130,6 +130,11 @@ function compactObject<T extends object>(value: T): Partial<T> {
   ) as Partial<T>;
 }
 
+function getConvexExtraField(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.match(/extra field `([^`]+)`/)?.[1] ?? null;
+}
+
 export type CatalogSortOption = 'default' | 'price_low' | 'price_high';
 export type CatalogFilter = { type: 'all' | 'category' | 'ribbon'; id: string | null };
 
@@ -546,7 +551,7 @@ export const [DataProvider, useData] = createContextHook(() => {
   }, [imageCacheIndex]);
 
   const addProduct = useCallback(async (product: Omit<Product, 'id' | 'createdAt'>) => {
-    const id = await createProductMutation({
+    const productPayload = compactObject({
       name: product.name,
       description: product.description,
       sku: product.sku,
@@ -562,36 +567,87 @@ export const [DataProvider, useData] = createContextHook(() => {
       ribbon: product.ribbon,
       ribbonColor: product.ribbonColor,
       ecwidId: product.ecwidId,
-    });
+    }) as any;
+
+    let id: unknown;
+    try {
+      id = await createProductMutation(productPayload);
+    } catch (error) {
+      const extraField = getConvexExtraField(error);
+      if (!extraField || !(extraField in productPayload)) throw error;
+
+      console.warn(`[Data] Convex products.create rejected "${extraField}". Retrying without it; deploy Convex functions to persist this field.`);
+      const fallbackPayload = { ...productPayload };
+      delete fallbackPayload[extraField];
+      id = await createProductMutation(fallbackPayload);
+    }
+
     const createdProduct = { ...product, id: id as string, createdAt: new Date().toISOString() };
-    const nextProducts = [createdProduct, ...cachedProducts.filter((item) => item.id !== createdProduct.id)];
-    setCachedProducts(nextProducts);
-    await saveProducts(nextProducts);
+    setCachedProducts(prev => {
+      const nextProducts = [createdProduct, ...prev.filter((item) => item.id !== createdProduct.id)];
+      saveProducts(nextProducts).catch(error => {
+        console.error('[Data] Failed to cache created product:', error);
+      });
+      return nextProducts;
+    });
     return createdProduct;
-  }, [cachedProducts, createProductMutation]);
+  }, [createProductMutation]);
 
   const updateProduct = useCallback(async (id: string, updates: Partial<Product>) => {
     const safeUpdates = withoutId(updates);
-    const updatedProduct = await updateProductMutation({
+    const mutationPayload = compactObject({
       id: id as unknown as Id<"products">,
       ...safeUpdates,
-    });
-    if (updatedProduct) {
-      const mappedProduct = mapProduct(updatedProduct);
-      const nextProducts = cachedProducts.map((product) => product.id === id ? mappedProduct : product);
-      setCachedProducts(nextProducts);
-      await saveProducts(nextProducts);
+    }) as any;
+    let updatedProduct: any;
+
+    try {
+      updatedProduct = await updateProductMutation(mutationPayload);
+    } catch (error) {
+      const extraField = getConvexExtraField(error);
+      if (!extraField || !(extraField in mutationPayload)) throw error;
+
+      console.warn(`[Data] Convex products.update rejected "${extraField}". Retrying without it; deploy Convex functions to persist this field.`);
+      const fallbackPayload = { ...mutationPayload };
+      delete fallbackPayload[extraField];
+      updatedProduct = await updateProductMutation(fallbackPayload);
     }
-  }, [cachedProducts, updateProductMutation]);
+
+    if (updatedProduct) {
+      const mappedProduct = {
+        ...mapProduct(updatedProduct),
+        ...safeUpdates,
+        id,
+      };
+      setCachedProducts(prev => {
+        const exists = prev.some((product) => product.id === id);
+        const nextProducts = exists
+          ? prev.map((product) => product.id === id ? mappedProduct : product)
+          : [mappedProduct, ...prev];
+
+        saveProducts(nextProducts).catch(error => {
+          console.error('[Data] Failed to cache updated product:', error);
+        });
+
+        return nextProducts;
+      });
+    }
+  }, [updateProductMutation]);
 
   const deleteProduct = useCallback(async (id: string) => {
     await removeProductMutation({ id: id as unknown as Id<"products"> });
-    const nextProducts = cachedProducts.map((product) => (
-      product.id === id ? { ...product, isActive: false } : product
-    ));
-    setCachedProducts(nextProducts);
-    await saveProducts(nextProducts);
-  }, [cachedProducts, removeProductMutation]);
+    setCachedProducts(prev => {
+      const nextProducts = prev.map((product) => (
+        product.id === id ? { ...product, isActive: false } : product
+      ));
+
+      saveProducts(nextProducts).catch(error => {
+        console.error('[Data] Failed to cache deleted product:', error);
+      });
+
+      return nextProducts;
+    });
+  }, [removeProductMutation]);
 
   const importProducts = useCallback(async (importedProducts: ProductCsvImportProduct[]) => {
     if (isOfflineMode) {

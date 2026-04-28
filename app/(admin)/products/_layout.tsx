@@ -10,6 +10,7 @@ export default function ProductsLayout() {
             }}
         >
             <Stack.Screen name="index" />
+            <Stack.Screen name="add-product" />
             <Stack.Screen name="[id]" />
         </Stack>
     );

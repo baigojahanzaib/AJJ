@@ -214,46 +214,6 @@ export default function ProductDetailPage() {
                                         <Text style={styles.optionBadgeText}>{quantityInCart}</Text>
                                     </View>
                                 )}
-                                {/* Dynamic Price Difference */}
-                                {(() => {
-                                    const selections = { ...selectedVariations, [variation.id]: option.id };
-                                    const optionPrice = getPriceForSelections(selections);
-
-                                    // Calculate diff against the CURRENTLY selected price, 
-                                    // OR against the BASE product price?
-                                    // Usually users want to know "How much extra is this option?"
-                                    // If we use current selections as base, the tags change as you click.
-                                    // Let's try: Diff vs (Current Price if we essentially UNSELECTED this variation? No that's impossible).
-
-                                    // Let's stick to: Price Diff vs Current Total.
-                                    // If I select this, the total becomes X. Current is Y. Diff = X - Y.
-                                    const currentPrice = getPriceForSelections(selectedVariations);
-                                    const diff = optionPrice - currentPrice;
-
-                                    // If this is the SELECTED option, diff is 0.
-                                    // Users might want to know the "value" of the selected option.
-                                    // But for combinations, "value" is hard. 
-                                    // Let's just hide the tag if it's selected or diff is 0.
-
-                                    if (selectedOptionId === option.id) {
-                                        // Option is selected. Maybe show nothing?
-                                        // The checkmark is there.
-                                        return null;
-                                    }
-
-                                    if (Math.abs(diff) < 0.01) return null;
-
-                                    return (
-                                        <Text
-                                            style={[
-                                                styles.optionPrice,
-                                                selectedOptionId === option.id && styles.optionPriceSelected,
-                                            ]}
-                                        >
-                                            {diff > 0 ? '+' : ''}R{diff.toFixed(2)}
-                                        </Text>
-                                    );
-                                })()}
                                 {selectedOptionId === option.id && (
                                     <Check size={14} color={Colors.light.primaryForeground} style={styles.checkIcon} />
                                 )}
@@ -716,15 +676,6 @@ const styles = StyleSheet.create({
     },
     optionTextSelected: {
         color: Colors.light.primaryForeground,
-    },
-    optionPrice: {
-        fontSize: 12,
-        color: Colors.light.textTertiary,
-        marginLeft: 6,
-    },
-    optionPriceSelected: {
-        color: Colors.light.primaryForeground,
-        opacity: 0.8,
     },
     checkIcon: {
         marginLeft: 6,

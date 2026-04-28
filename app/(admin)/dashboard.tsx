@@ -10,8 +10,11 @@ export default function AdminDashboard() {
   const { dashboardStats, orders } = useData();
   const { user } = useAuth();
 
-  const formatCurrency = (value: number) => {
-    return `R${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatCurrency = (value: number, fractionDigits = 2) => {
+    return `R${value.toLocaleString('en-US', {
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    })}`;
   };
 
   const recentOrders = orders.slice(0, 5);
@@ -79,17 +82,24 @@ export default function AdminDashboard() {
           </View>
           <Card>
             <View style={styles.monthlyStats}>
-              <View style={styles.monthlyStat}>
+              <View style={[styles.monthlyStat, styles.monthlySideStat]}>
                 <Text style={styles.monthlyValue}>{dashboardStats.ordersThisMonth}</Text>
                 <Text style={styles.monthlyLabel}>Orders</Text>
               </View>
               <View style={styles.divider} />
-              <View style={styles.monthlyStat}>
-                <Text style={styles.monthlyValue}>{formatCurrency(dashboardStats.revenueThisMonth)}</Text>
+              <View style={[styles.monthlyStat, styles.monthlyRevenueStat]}>
+                <Text
+                  style={styles.monthlyValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.75}
+                >
+                  {formatCurrency(dashboardStats.revenueThisMonth, 0)}
+                </Text>
                 <Text style={styles.monthlyLabel}>Revenue</Text>
               </View>
               <View style={styles.divider} />
-              <View style={styles.monthlyStat}>
+              <View style={[styles.monthlyStat, styles.monthlySideStat]}>
                 <Text style={[styles.monthlyValue, { color: Colors.light.warning }]}>
                   {dashboardStats.pendingOrders}
                 </Text>
@@ -238,12 +248,21 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 8,
+    minWidth: 0,
+  },
+  monthlySideStat: {
+    flex: 0.8,
+  },
+  monthlyRevenueStat: {
+    flex: 1.8,
+    paddingHorizontal: 8,
   },
   monthlyValue: {
     fontSize: 20,
     fontWeight: '700' as const,
     color: Colors.light.text,
     marginBottom: 4,
+    maxWidth: '100%',
   },
   monthlyLabel: {
     fontSize: 13,

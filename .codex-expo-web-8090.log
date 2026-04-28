@@ -1,0 +1,32 @@
+env: load .env.local .env
+env: export CONVEX_DEPLOYMENT EXPO_PUBLIC_CONVEX_URL EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID
+Starting project at E:\AJJ
+Metro is running in CI mode, reloads are disabled. Remove CI=true to enable watch mode.
+Starting Metro Bundler
+Error while reading cache, falling back to a full crawl:
+ Error: Unable to deserialize cloned data.
+    at deserialize (node:v8:469:14)
+    at DiskCacheManager.read (E:\AJJ\node_modules\metro-file-map\src\cache\DiskCacheManager.js:60:33)
+    at FileMap.read (E:\AJJ\node_modules\metro-file-map\src\index.js:284:14)
+    at E:\AJJ\node_modules\metro-file-map\src\index.js:202:25
+    at DependencyGraph.ready (E:\AJJ\node_modules\metro\src\node-haste\DependencyGraph.js:88:5)
+    at Bundler.ready (E:\AJJ\node_modules\metro\src\Bundler.js:62:5)
+    at IncrementalBundler.ready (E:\AJJ\node_modules\metro\src\IncrementalBundler.js:302:5)
+    at Server.ready (E:\AJJ\node_modules\metro\src\Server.js:1305:5)
+The following packages should be updated for best compatibility with the installed expo version:
+  expo@54.0.33 - expected version: ~54.0.34
+  expo-file-system@19.0.21 - expected version: ~19.0.22
+  expo-image-picker@17.0.10 - expected version: ~17.0.11
+  expo-linking@8.0.11 - expected version: ~8.0.12
+  expo-updates@29.0.16 - expected version: ~29.0.17
+  expo-web-browser@15.0.10 - expected version: ~15.0.11
+Your project may not work correctly until you install the expected versions of the packages.
+Waiting on http://localhost:8090
+Logs for your project will appear below.
+Web node_modules\expo-router\entry.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓░░░░░░░░░░░ 36.8% (308/528)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓░░░░░░░░ 52.4% (691/955)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓░░░░░░░ 58.3% ( 918/2802)
+Web node_modules\expo-router\entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 95.9% (3046/3110)
+Web Bundled 17172ms node_modules\expo-router\entry.js (3235 modules)
+ LOG  [web] Logs will appear in the browser console

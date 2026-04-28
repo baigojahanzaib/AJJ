@@ -13,7 +13,7 @@ import ProductCard from '@/components/ProductCard';
 import Button from '@/components/Button';
 import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
-import { generateProductCsv, parseProductCsv } from '@/lib/product-csv';
+import { parseProductCsv, validateProductCsvRoundTrip } from '@/lib/product-csv';
 
 export default function AdminProducts() {
   const router = useRouter();
@@ -64,7 +64,10 @@ export default function AdminProducts() {
 
   const handleAddIndividualProduct = () => {
     setShowAddOptions(false);
-    router.push('/(admin)/add-product');
+    router.push({
+      pathname: '/(admin)/products/add-product',
+      params: { editSession: `new-${Date.now()}` },
+    });
   };
 
   const showAlert = (
@@ -91,7 +94,12 @@ export default function AdminProducts() {
 
     try {
       setIsExporting(true);
-      const csvContent = generateProductCsv(products, categories);
+      const validation = validateProductCsvRoundTrip(products, categories);
+      if (!validation.isValid) {
+        throw new Error(`Product CSV round-trip validation failed:\n${validation.errors.slice(0, 5).join('\n')}`);
+      }
+
+      const csvContent = validation.csvContent;
       const fileName = `products_${new Date().toISOString().split('T')[0]}.csv`;
       const docDir = FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
 

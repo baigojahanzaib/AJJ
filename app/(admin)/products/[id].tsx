@@ -48,7 +48,13 @@ export default function AdminProductDetail() {
     }
 
     const handleEdit = () => {
-        router.push(`/(admin)/add-product?productId=${product.id}`);
+        router.push({
+            pathname: '/(admin)/products/add-product',
+            params: {
+                productId: product.id,
+                editSession: `${product.id}-${Date.now()}`,
+            },
+        });
     };
 
     const handleToggleActive = () => {
