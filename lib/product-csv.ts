@@ -57,6 +57,8 @@ const PRODUCT_ECWID_BASE_CSV_HEADERS = [
   'product_variation_sku',
   'product_variation_name',
   'ajj_row_kind',
+  'variations_json',
+  'combinations_json',
 ];
 
 type CsvDataRow = {
@@ -247,7 +249,7 @@ function parseAppProductRow(
 
   return {
     id: firstCell(headers, row.values, ['product_id', 'id'])?.trim() || undefined,
-    ecwidId: parseOptionalNumber(firstCell(headers, row.values, ['ecwid_id', 'product_internal_id'])),
+    ecwidId: parseOptionalIdentifierNumber(firstCell(headers, row.values, ['ecwid_id', 'product_internal_id'])),
     sku,
     name,
     description: firstCell(headers, row.values, ['description', 'product_description'])?.trim() ?? '',
@@ -340,13 +342,39 @@ function parseEcwidProductGroup(
 
   const stock = parseOptionalNumber(getCell(headers, row, 'product_quantity')) ?? 0;
   const images = collectEcwidProductImages(headers, row);
-  const variations = buildEcwidVariations(headers, group, sku, basePrice, stock);
-  const combinations = buildEcwidCombinations(headers, group, basePrice);
+  const rowVariations = buildEcwidVariations(headers, group, sku, basePrice, stock);
+  const rowCombinations = buildEcwidCombinations(headers, group, basePrice);
+  const exportedVariations = isAppFormattedExport
+    ? parseJsonArray<ProductVariation>(
+      getCell(headers, row, 'variations_json'),
+      `Row ${productRow.rowNumber}: variations_json`,
+      warnings
+    )
+    : [];
+  const exportedCombinations = isAppFormattedExport
+    ? parseJsonArray<CsvProductCombination>(
+      getCell(headers, row, 'combinations_json'),
+      `Row ${productRow.rowNumber}: combinations_json`,
+      warnings
+    )
+    : [];
+  const variations = exportedVariations.length > 0
+    ? mergeExportedVariationsWithVariationRows(
+      normalizeVariations(exportedVariations, sku),
+      headers,
+      group,
+      basePrice
+    )
+    : rowVariations;
+  const normalizedExportedCombinations = normalizeCombinations(exportedCombinations, basePrice);
+  const combinations = normalizedExportedCombinations
+    ? mergeExportedCombinationsWithVariationRows(normalizedExportedCombinations, rowCombinations)
+    : rowCombinations;
   const fallbackImages = collectEcwidVariationImages(headers, group);
 
   return {
     id: productId || undefined,
-    ecwidId: parseOptionalNumber(firstCell(headers, row, ['ecwid_id', 'product_internal_id'])),
+    ecwidId: parseOptionalIdentifierNumber(firstCell(headers, row, ['ecwid_id', 'product_internal_id'])),
     sku,
     name,
     description: isAppFormattedExport
@@ -380,7 +408,7 @@ function buildEcwidVariations(
 
   const getDraftVariation = (name: string): DraftVariation => {
     const normalizedName = name.trim();
-    const key = normalizedName.toLowerCase();
+    const key = normalizedName;
     if (!draftVariations.has(key)) {
       draftVariations.set(key, {
         name: normalizedName,
@@ -393,7 +421,7 @@ function buildEcwidVariations(
   const addOption = (variationName: string, optionName: string, updates: Partial<DraftOption> = {}) => {
     const draftVariation = getDraftVariation(variationName);
     const normalizedOptionName = optionName.trim();
-    const optionKey = normalizedOptionName.toLowerCase();
+    const optionKey = normalizedOptionName;
     const existing = draftVariation.options.get(optionKey);
     draftVariation.options.set(optionKey, {
       name: normalizedOptionName,
@@ -442,7 +470,7 @@ function buildEcwidVariations(
       }
 
       if (variationImage) {
-        const key = `${selectedOption.variationName.toLowerCase()}:${selectedOption.optionName.toLowerCase()}`;
+        const key = `${selectedOption.variationName}:${selectedOption.optionName}`;
         if (!optionImages.has(key)) optionImages.set(key, new Set());
         optionImages.get(key)!.add(variationImage);
       }
@@ -454,16 +482,14 @@ function buildEcwidVariations(
         sku: variationSku || undefined,
         stock: variationStock ?? baseStock,
         image: variationImage || undefined,
-        priceModifier: rowKind === 'option_variation'
-          ? undefined
-          : variationPrice !== undefined ? variationPrice - basePrice : undefined,
+        priceModifier: variationPrice !== undefined ? variationPrice - basePrice : undefined,
       });
     }
   });
 
   for (const draftVariation of draftVariations.values()) {
     for (const option of draftVariation.options.values()) {
-      const imageKey = `${draftVariation.name.toLowerCase()}:${option.name.toLowerCase()}`;
+      const imageKey = `${draftVariation.name}:${option.name}`;
       const images = optionImages.get(imageKey);
       if (!option.image && images?.size === 1) {
         option.image = Array.from(images)[0];
@@ -478,7 +504,7 @@ function buildEcwidVariations(
       id: `opt-${slugify(variation.name) || variationIndex}-${slugify(option.name) || optionIndex}`,
       name: option.name,
       priceModifier: option.priceModifier ?? 0,
-      sku: option.sku || `${baseSku}-${option.name}`.trim(),
+      sku: option.sku ?? '',
       stock: option.stock ?? baseStock,
       image: option.image,
       moq: option.moq,
@@ -526,6 +552,78 @@ function buildEcwidCombinations(
     .filter((combination): combination is CsvProductCombination => combination !== null);
 
   return combinations.length > 0 ? combinations : undefined;
+}
+
+function mergeExportedVariationsWithVariationRows(
+  variations: ProductVariation[],
+  headers: string[],
+  group: EcwidGroup,
+  basePrice: number
+): ProductVariation[] {
+  const merged = variations.map((variation) => ({
+    ...variation,
+    options: variation.options.map((option) => ({ ...option })),
+  }));
+  const optionsById = new Map<string, VariationOption>();
+
+  merged.forEach((variation) => {
+    variation.options.forEach((option) => {
+      if (option.id) optionsById.set(option.id, option);
+    });
+  });
+
+  group.variationRows.forEach((variationRow) => {
+    if (getCell(headers, variationRow.values, 'ajj_row_kind').trim() === 'combination_variation') return;
+
+    const optionId = getCell(headers, variationRow.values, 'product_variation_id').trim();
+    if (!optionId) return;
+
+    const option = optionsById.get(optionId);
+    if (!option) return;
+
+    const sku = getCell(headers, variationRow.values, 'product_variation_sku').trim();
+    const stock = parseOptionalNumber(getCell(headers, variationRow.values, 'product_quantity'));
+    const moq = parseOptionalNumber(getCell(headers, variationRow.values, 'product_quantity_minimum_allowed_for_purchase'));
+    const image = getCell(headers, variationRow.values, 'product_media_main_image_url').trim();
+    const price = parseOptionalNumber(getCell(headers, variationRow.values, 'product_price'));
+
+    if (sku) option.sku = sku;
+    if (stock !== undefined) option.stock = stock;
+    if (moq !== undefined) option.moq = moq;
+    if (image) option.image = image;
+    if (price !== undefined) option.priceModifier = price - basePrice;
+  });
+
+  return merged;
+}
+
+function mergeExportedCombinationsWithVariationRows(
+  combinations: CsvProductCombination[],
+  rowCombinations: Product['combinations']
+): Product['combinations'] {
+  if (!rowCombinations || rowCombinations.length === 0) return combinations;
+
+  const rowsById = new Map(rowCombinations.map((combination) => [normalizeComparableValue(combination.id), combination]));
+  const rowsBySku = new Map(
+    rowCombinations
+      .filter((combination) => combination.sku?.trim())
+      .map((combination) => [combination.sku!.trim(), combination])
+  );
+
+  return combinations.map((combination, index) => {
+    const rowCombination = rowsById.get(normalizeComparableValue(combination.id)) ??
+      (combination.sku ? rowsBySku.get(combination.sku.trim()) : undefined) ??
+      rowCombinations[index];
+
+    if (!rowCombination) return combination;
+
+    return {
+      ...combination,
+      price: rowCombination.price,
+      sku: rowCombination.sku ?? combination.sku,
+      stock: rowCombination.stock ?? combination.stock,
+    };
+  });
 }
 
 function collectEcwidProductImages(headers: string[], row: string[]): string[] {
@@ -577,27 +675,25 @@ function buildGalleryImageHeaders(count: number): string[] {
 }
 
 function buildEcwidVariationOptionHeaders(products: Product[]): EcwidVariationOptionHeader[] {
-  const variationNames = new Map<string, string>();
+  const variationNames = new Set<string>();
 
   products.forEach((product) => {
     product.variations.forEach((variation) => {
       const name = variation.name.trim();
       if (!name) return;
-      const key = name.toLowerCase();
-      if (!variationNames.has(key)) variationNames.set(key, name);
+      variationNames.add(name);
     });
 
     product.combinations?.forEach((combination) => {
       combination.options.forEach((option) => {
         const name = option.name.trim();
         if (!name) return;
-        const key = name.toLowerCase();
-        if (!variationNames.has(key)) variationNames.set(key, name);
+        variationNames.add(name);
       });
     });
   });
 
-  return Array.from(variationNames.values()).map((variationName) => ({
+  return Array.from(variationNames).map((variationName) => ({
     variationName,
     header: `product_variation_option_${formatEcwidOptionHeaderSuffix(variationName)}`,
   }));
@@ -614,11 +710,12 @@ function buildEcwidProductRows(
   variationOptionHeaders: EcwidVariationOptionHeader[]
 ): string[][] {
   const productRows: Record<string, string>[] = [];
+  const productInternalId = getProductInternalId(product);
   const sharedProductValues = {
     format_version: PRODUCT_CSV_FORMAT,
     product_id: product.id,
     ecwid_id: product.ecwidId?.toString() ?? '',
-    product_internal_id: product.ecwidId?.toString() ?? '',
+    product_internal_id: productInternalId,
     product_sku: product.sku,
   };
 
@@ -639,6 +736,8 @@ function buildEcwidProductRows(
     product_attribute_MOQ: product.moq?.toString() ?? '',
     product_ribbon_text: product.ribbon ?? '',
     product_ribbon_color: product.ribbonColor ?? '',
+    variations_json: JSON.stringify(product.variations),
+    combinations_json: JSON.stringify(product.combinations ?? []),
     ...Object.fromEntries(product.images.slice(1).map((image, index) => [
       `product_media_gallery_image_url_${index + 1}`,
       image,
@@ -673,7 +772,7 @@ function buildEcwidProductRows(
         product_quantity: combination.stock?.toString() ?? '',
         product_variation_id: combination.id?.toString() ?? '',
         product_variation_sku: combination.sku ?? '',
-        product_variation_name: '',
+        product_variation_name: formatVariationSelectionLabel(combination.options),
         ajj_row_kind: 'combination_variation',
         ...formatVariationSelectionColumns(combination.options, variationOptionHeaders),
       });
@@ -690,7 +789,7 @@ function buildEcwidProductRows(
           product_media_main_image_url: option.image ?? '',
           product_variation_id: option.id,
           product_variation_sku: option.sku,
-          product_variation_name: '',
+          product_variation_name: formatVariationSelectionLabel([{ name: variation.name, value: option.name }]),
           ajj_row_kind: 'option_variation',
           ...formatVariationSelectionColumns([{ name: variation.name, value: option.name }], variationOptionHeaders),
         });
@@ -701,16 +800,26 @@ function buildEcwidProductRows(
   return productRows.map((row) => headers.map((header) => row[header] ?? ''));
 }
 
+function getProductInternalId(product: Product): string {
+  return product.ecwidId?.toString() || product.id;
+}
+
+function formatVariationSelectionLabel(options: CsvProductCombination['options']): string {
+  return options
+    .map((option) => `${option.name}: ${option.value}`)
+    .join(' / ');
+}
+
 function formatVariationSelectionColumns(
   options: CsvProductCombination['options'],
   variationOptionHeaders: EcwidVariationOptionHeader[]
 ): Record<string, string> {
-  const valuesByVariation = new Map(options.map((option) => [option.name.toLowerCase(), option.value]));
+  const valuesByVariation = new Map(options.map((option) => [option.name, option.value]));
 
   return Object.fromEntries(
     variationOptionHeaders.map((variationOptionHeader) => [
       variationOptionHeader.header,
-      valuesByVariation.get(variationOptionHeader.variationName.toLowerCase()) ?? '',
+      valuesByVariation.get(variationOptionHeader.variationName) ?? '',
     ])
   ) as Record<string, string>;
 }
@@ -1004,10 +1113,16 @@ function compareCombinations(
     compareScalar(errors, label, `combination ${index + 1} price`, combination.price, actualCombination.price);
     compareScalar(errors, label, `combination ${index + 1} stock`, combination.stock, actualCombination.stock);
 
-    const expectedOptions = combination.options.map((option) => `${option.name}=${option.value}`);
-    const actualOptions = actualCombination.options.map((option) => `${option.name}=${option.value}`);
+    const expectedOptions = formatComparableCombinationOptions(combination.options);
+    const actualOptions = formatComparableCombinationOptions(actualCombination.options);
     compareStringArray(errors, label, `combination ${index + 1} options`, expectedOptions, actualOptions);
   });
+}
+
+function formatComparableCombinationOptions(options: CsvProductCombination['options']): string[] {
+  return options
+    .map((option) => `${option.name.trim()}=${option.value.trim()}`)
+    .sort((left, right) => left.localeCompare(right));
 }
 
 function normalizeComparableValue(value: unknown): string {
@@ -1210,6 +1325,14 @@ function parseOptionalNumber(raw: unknown): number | undefined {
   if (!match) return undefined;
   const value = Number(match[0]);
   return Number.isFinite(value) ? value : undefined;
+}
+
+function parseOptionalIdentifierNumber(raw: unknown): number | undefined {
+  if (typeof raw === 'number') return Number.isInteger(raw) && raw >= 0 ? raw : undefined;
+  const text = String(raw ?? '').trim();
+  if (!/^\d+$/.test(text)) return undefined;
+  const value = Number(text);
+  return Number.isSafeInteger(value) ? value : undefined;
 }
 
 function toFiniteNumber(raw: unknown, fallback: number): number {

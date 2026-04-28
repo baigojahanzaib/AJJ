@@ -13,7 +13,7 @@
     "version:ota": "node scripts/version-manager.js ota",
     "version:major": "node scripts/version-manager.js major",
     "ota:check-runtime": "node scripts/verify-ota-runtime.js android production production",
-    "build:apk": "node scripts/version-manager.js apk && eas build --platform android --profile production",
+    "build:apk": "node scripts/version-manager.js apk && eas build --platform android --profile production-apk",
     "build:preview": "eas build --platform android --profile preview",
     "update:ota": "node scripts/verify-ota-runtime.js android production production && node scripts/version-manager.js ota && eas update --platform android --branch production --environment production"
   },

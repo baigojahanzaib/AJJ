@@ -130,7 +130,7 @@ try {
         console.log(`   New version: ${result.newVersion}`);
 
         if (command === 'apk') {
-            console.log(`\n📦 Ready for APK build. Run: eas build --platform android --profile production`);
+            console.log(`\n📦 Ready for APK build. Run: eas build --platform android --profile production-apk`);
         } else if (command === 'ota') {
             console.log(`\n🚀 Ready for OTA update. Run: eas update --branch production --message "Your update message"`);
         }

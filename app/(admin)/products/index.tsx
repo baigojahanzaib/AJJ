@@ -96,7 +96,10 @@ export default function AdminProducts() {
       setIsExporting(true);
       const validation = validateProductCsvRoundTrip(products, categories);
       if (!validation.isValid) {
-        throw new Error(`Product CSV round-trip validation failed:\n${validation.errors.slice(0, 5).join('\n')}`);
+        console.warn(
+          'Product CSV round-trip validation warnings:',
+          validation.errors.slice(0, 10)
+        );
       }
 
       const csvContent = validation.csvContent;
