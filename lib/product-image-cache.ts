@@ -1,9 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 import { Product } from '@/types';
 
 const IMAGE_CACHE_INDEX_KEY = '@salesapp_offline_image_cache_index';
 const IMAGE_CACHE_DIR = `${FileSystem.documentDirectory}offline-cache/product-images`;
+const USE_FILE_IMAGE_CACHE = Platform.OS !== 'web';
 
 export type ImageCacheIndex = Record<string, string>;
 
@@ -140,6 +142,7 @@ export async function loadImageCacheIndex(): Promise<ImageCacheIndex> {
 export function resolveCachedImageUri(uri: string | null | undefined, index: ImageCacheIndex): string {
   if (!uri) return '';
   const normalized = normalizeUri(uri);
+  if (!USE_FILE_IMAGE_CACHE) return normalized;
   return index[normalized] || normalized;
 }
 
@@ -152,6 +155,17 @@ export async function cacheProductImages(
   const concurrency = options?.concurrency ?? 6;
   const candidateUrls = collectProductImageUrls(products, mode);
   const urls = options?.maxImages ? candidateUrls.slice(0, options.maxImages) : candidateUrls;
+
+  if (!USE_FILE_IMAGE_CACHE) {
+    return {
+      index: currentIndex,
+      updated: false,
+      total: urls.length,
+      downloaded: 0,
+      reused: urls.length,
+      failed: 0,
+    };
+  }
 
   if (urls.length === 0) {
     return {

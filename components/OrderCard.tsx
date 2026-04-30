@@ -8,6 +8,7 @@ import Badge from './Badge';
 interface OrderCardProps {
   order: Order;
   onPress: () => void;
+  onLongPress?: () => void;
   showSalesRep?: boolean;
   onStatusChange?: (orderId: string, newStatus: OrderStatus) => void;
 }
@@ -25,7 +26,7 @@ const allStatuses: OrderStatus[] = ['pending', 'confirmed', 'processing', 'shipp
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-export default function OrderCard({ order, onPress, showSalesRep = false, onStatusChange }: OrderCardProps) {
+export default function OrderCard({ order, onPress, onLongPress, showSalesRep = false, onStatusChange }: OrderCardProps) {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -110,7 +111,12 @@ export default function OrderCard({ order, onPress, showSalesRep = false, onStat
   const isUpToDate = isSynced && lastSyncedAt && lastSyncedAt.getTime() >= updatedAt.getTime() - 1000;
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.container}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      activeOpacity={0.7}
+    >
       <View style={styles.header}>
         <View>
           <View style={styles.orderNumberRow}>

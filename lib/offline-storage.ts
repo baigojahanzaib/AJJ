@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 import { Product, Category, Customer, Order } from '@/types';
 
 const CACHE_DIR = `${FileSystem.documentDirectory}offline-cache`;
+const USE_FILE_CACHE = Platform.OS !== 'web';
 
 const FILE_NAMES = {
     PRODUCTS: 'products.json',
@@ -20,6 +22,17 @@ const LEGACY_STORAGE_KEYS = {
 
 const STORAGE_KEYS = {
     LAST_SYNC: '@salesapp_last_sync',
+    PRODUCTS: '@salesapp_file_cache_products',
+    CATEGORIES: '@salesapp_file_cache_categories',
+    CUSTOMERS: '@salesapp_file_cache_customers',
+    ORDERS: '@salesapp_file_cache_orders',
+};
+
+const WEB_STORAGE_KEYS: Record<string, string> = {
+    [FILE_NAMES.PRODUCTS]: STORAGE_KEYS.PRODUCTS,
+    [FILE_NAMES.CATEGORIES]: STORAGE_KEYS.CATEGORIES,
+    [FILE_NAMES.CUSTOMERS]: STORAGE_KEYS.CUSTOMERS,
+    [FILE_NAMES.ORDERS]: STORAGE_KEYS.ORDERS,
 };
 
 function getFileUri(fileName: string): string {
@@ -36,6 +49,11 @@ async function ensureCacheDir(): Promise<void> {
 
 async function saveToFile<T>(fileName: string, data: T): Promise<void> {
     try {
+        if (!USE_FILE_CACHE) {
+            await AsyncStorage.setItem(WEB_STORAGE_KEYS[fileName], JSON.stringify(data));
+            return;
+        }
+
         await ensureCacheDir();
         await FileSystem.writeAsStringAsync(
             getFileUri(fileName),
@@ -49,6 +67,11 @@ async function saveToFile<T>(fileName: string, data: T): Promise<void> {
 
 async function getFromFile<T>(fileName: string): Promise<T | null> {
     try {
+        if (!USE_FILE_CACHE) {
+            const raw = await AsyncStorage.getItem(WEB_STORAGE_KEYS[fileName]);
+            return raw ? (JSON.parse(raw) as T) : null;
+        }
+
         const fileUri = getFileUri(fileName);
         const info = await FileSystem.getInfoAsync(fileUri);
         if (!info.exists) return null;
@@ -135,9 +158,16 @@ export const getLastSyncTimestamp = async (): Promise<string | null> => {
 // Clear all cache (useful for debugging or logout)
 export const clearAllCache = async () => {
     try {
-        await FileSystem.deleteAsync(CACHE_DIR, { idempotent: true });
+        if (USE_FILE_CACHE) {
+            await FileSystem.deleteAsync(CACHE_DIR, { idempotent: true });
+        }
+
         await AsyncStorage.multiRemove([
             STORAGE_KEYS.LAST_SYNC,
+            STORAGE_KEYS.PRODUCTS,
+            STORAGE_KEYS.CATEGORIES,
+            STORAGE_KEYS.CUSTOMERS,
+            STORAGE_KEYS.ORDERS,
             LEGACY_STORAGE_KEYS.PRODUCTS,
             LEGACY_STORAGE_KEYS.CATEGORIES,
             LEGACY_STORAGE_KEYS.CUSTOMERS,

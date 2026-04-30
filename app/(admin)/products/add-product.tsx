@@ -1406,7 +1406,7 @@ export default function AddProductPage() {
           <View style={styles.priceInputContainer}>
             <Text style={styles.inputLabel}>Base Price</Text>
             <View style={styles.priceInput}>
-              <Text style={styles.currencySymbol}>$</Text>
+              <Text style={styles.currencySymbol}>R</Text>
               <TextInput
                 style={styles.priceField}
                 placeholder="0.00"
@@ -1505,7 +1505,7 @@ export default function AddProductPage() {
                     )}
                     <Text style={styles.variationOptionText}>{opt.name}</Text>
                     {opt.priceModifier > 0 && (
-                      <Text style={styles.variationOptionPrice}>+${opt.priceModifier}</Text>
+                      <Text style={styles.variationOptionPrice}>+R{opt.priceModifier}</Text>
                     )}
                   </View>
                 ))}
