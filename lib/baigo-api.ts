@@ -366,13 +366,13 @@ export const fetchCategories = (options: FetchListOptions = {}) => (
 );
 export const fetchCustomers = (options: FetchListOptions = {}) => (
   collectPaginated(
-    withQuery('/api/customers/', { updated_after: options.updatedAfter }),
+    withQuery('/api/customers/', { updated_after: options.updatedAfter, page_size: '250' }),
     normalizeCustomer
   )
 );
 export const fetchOrders = (options: FetchListOptions = {}) => (
   collectPaginated(
-    withQuery('/api/orders/', { updated_after: options.updatedAfter }),
+    withQuery('/api/orders/', { updated_after: options.updatedAfter, page_size: '100' }),
     normalizeOrder
   )
 );

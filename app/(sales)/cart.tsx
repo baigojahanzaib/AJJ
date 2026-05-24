@@ -55,7 +55,7 @@ export default function SalesCart() {
     clearCart
   } = useCart();
   const { taxSettings } = useRemoteConfig();
-  const { addOrder, addCustomer, activeCustomers, resolveImageUri } = useData();
+  const { addOrder, activeCustomers, resolveImageUri, loadCachedDataAndSync, isSyncing } = useData();
   const { user } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
@@ -241,8 +241,13 @@ export default function SalesCart() {
     setCustomerModalStep('list');
     setCustomerSearch('');
     setShowCustomerModal(true);
+    if (activeCustomers.length < 100 && !isSyncing) {
+      loadCachedDataAndSync().catch(error => {
+        console.error('[Cart] Unable to refresh customers:', error);
+      });
+    }
     Haptics.selectionAsync();
-  }, [commitAllDraftEdits, items, quantityDrafts]);
+  }, [activeCustomers.length, commitAllDraftEdits, isSyncing, items, loadCachedDataAndSync, quantityDrafts]);
 
   const handleSelectCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
@@ -312,6 +317,7 @@ export default function SalesCart() {
   };
 
   const handleConfirmOrder = () => {
+    if (isSubmitting) return;
     if (!confirmedCustomer) return;
     handleSubmitOrder(selectedCustomer, confirmedCustomer);
   };
@@ -345,35 +351,12 @@ export default function SalesCart() {
     setIsSubmitting(true);
 
     try {
-      let orderCustomerId = customer?.id;
-
-      // If we don't have a selected customer (meaning we created a new one), save it to the DB
-      if (!customer && newCustomerData) {
-        try {
-          const createdCustomer = await addCustomer({
-            name: newCustomerData.name,
-            phone: newCustomerData.phone,
-            email: newCustomerData.email,
-            address: newCustomerData.address,
-            latitude: newCustomerData.latitude,
-            longitude: newCustomerData.longitude,
-            isActive: true,
-          });
-          orderCustomerId = createdCustomer.id;
-          console.log('[Cart] New customer created during order submission');
-        } catch (err) {
-          console.error('[Cart] Error creating customer:', err);
-          // We continue with order creation even if customer save fails? 
-          // Probably better to warn but for now let's proceed so the order isn't lost
-        }
-      }
-
       const orderItems = buildOrderItemsFromCartItems(items);
 
       const newOrder = await addOrder({
         salesRepId: user?.id || '',
         salesRepName: user?.name || '',
-        customerId: orderCustomerId,
+        customerId: customer?.id,
         customerName: customerData.name,
         customerPhone: customerData.phone,
         customerEmail: customerData.email,
@@ -427,9 +410,12 @@ export default function SalesCart() {
       });
     } catch (error) {
       console.error('[Cart] Error submitting order:', error);
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Failed to submit order. Please try again.';
       showAlert({
         title: 'Error',
-        message: 'Failed to submit order. Please try again.',
+        message,
         type: 'error',
         buttons: [{ text: 'OK', style: 'default' }],
       });
@@ -519,7 +505,9 @@ export default function SalesCart() {
         )}
         ListEmptyComponent={
           <View style={styles.emptyCustomers}>
-            <Text style={styles.emptyCustomersText}>No customers found</Text>
+            <Text style={styles.emptyCustomersText}>
+              {isSyncing ? 'Loading customers...' : 'No customers found'}
+            </Text>
           </View>
         }
       />

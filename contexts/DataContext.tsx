@@ -8,6 +8,8 @@ import {
   saveOrders, getCachedOrders,
   setLastSyncTimestamp,
   getLastSyncTimestamp,
+  getCustomerSyncVersion,
+  setCustomerSyncVersion,
 } from '@/lib/offline-storage';
 import { queueOrder, queueOrderUpdate, updatePendingOrder } from '@/lib/sync-manager';
 import { useOffline } from '@/contexts/OfflineContext';
@@ -54,10 +56,18 @@ export type SyncProgress = {
   mode: 'full' | 'delta';
 };
 
+const CUSTOMER_IMPORT_SYNC_VERSION = 'convex-customers-2026-05-24-v1';
+
 function withoutId<T extends { id?: unknown }>(updates: T): Omit<T, 'id'> {
   const result = { ...updates } as T & { id?: unknown };
   delete result.id;
   return result;
+}
+
+function numericApiId(value?: string): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 function compactObject<T extends object>(value: T): Partial<T> {
@@ -71,6 +81,12 @@ function mergeById<T extends { id: string }>(existing: T[], incoming: T[]): T[] 
   const byId = new Map(existing.map(item => [item.id, item]));
   incoming.forEach(item => byId.set(item.id, item));
   return Array.from(byId.values());
+}
+
+function sortCustomers(customers: Customer[]): Customer[] {
+  return [...customers].sort((a, b) => (
+    (a.company || a.name).localeCompare(b.company || b.name, undefined, { sensitivity: 'base' })
+  ));
 }
 
 function variantIdForOrderItem(item: Order['items'][number], products: Product[]): number | null {
@@ -100,7 +116,7 @@ function orderToApiPayload(orderData: Omit<Order, 'id' | 'orderNumber' | 'create
     .filter(item => item.variant_id !== null && item.quantity > 0);
 
   return compactObject({
-    customer_id: orderData.customerId ? Number(orderData.customerId) : undefined,
+    customer_id: numericApiId(orderData.customerId),
     customer_name: orderData.customerName,
     customer_email: orderData.customerEmail,
     customer_phone: orderData.customerPhone,
@@ -177,21 +193,26 @@ export const [DataProvider, useData] = createContextHook(() => {
     const baselineCustomers = _seed?.customersCache ?? cachedCustomers;
     const baselineOrders = _seed?.ordersCache ?? cachedOrders;
     let lastSync: string | null = null;
+    let customerSyncVersion: string | null = null;
     try {
-      lastSync = await getLastSyncTimestamp();
+      [lastSync, customerSyncVersion] = await Promise.all([
+        getLastSyncTimestamp(),
+        getCustomerSyncVersion(),
+      ]);
     } catch (error) {
-      console.warn('[Data] Could not read last sync timestamp:', error);
+      console.warn('[Data] Could not read sync metadata:', error);
     }
+    const canSyncCustomers = isAuthenticated && (user?.role === 'admin' || user?.role === 'sales_rep');
+    const canSyncOrders = isAuthenticated;
+    const canSyncUsers = isAuthenticated && user?.role === 'admin';
+    const needsCustomerImportRefresh = canSyncCustomers && customerSyncVersion !== CUSTOMER_IMPORT_SYNC_VERSION;
     const productDeltaAfter = lastSync && baselineProducts.length > 0 ? lastSync : null;
     const categoryDeltaAfter = lastSync && baselineCategories.length > 0 ? lastSync : null;
-    const customerDeltaAfter = lastSync && baselineCustomers.length > 0 ? lastSync : null;
+    const customerDeltaAfter = !needsCustomerImportRefresh && lastSync && baselineCustomers.length > 0 ? lastSync : null;
     const orderDeltaAfter = lastSync && baselineOrders.length > 0 ? lastSync : null;
     const syncMode: SyncProgress['mode'] = productDeltaAfter || categoryDeltaAfter || customerDeltaAfter || orderDeltaAfter
       ? 'delta'
       : 'full';
-    const canSyncCustomers = isAuthenticated && (user?.role === 'admin' || user?.role === 'sales_rep');
-    const canSyncOrders = isAuthenticated;
-    const canSyncUsers = isAuthenticated && user?.role === 'admin';
     const totalSteps = 2 + (canSyncCustomers ? 1 : 0) + (canSyncOrders ? 1 : 0) + (canSyncUsers ? 1 : 0);
     let completed = 0;
 
@@ -235,18 +256,19 @@ export const [DataProvider, useData] = createContextHook(() => {
 
       if (canSyncCustomers) {
         const customers = await runStep(
-          customerDeltaAfter ? 'Syncing changed customers' : 'Syncing customers',
-          () => fetchCustomers({ updatedAfter: customerDeltaAfter }).catch(() => [])
+          customerDeltaAfter ? 'Syncing changed customers' : 'Syncing all customers',
+          () => fetchCustomers({ updatedAfter: customerDeltaAfter })
         );
-        const nextCustomers = customerDeltaAfter ? mergeById(baselineCustomers, customers) : customers;
+        const nextCustomers = sortCustomers(customerDeltaAfter ? mergeById(baselineCustomers, customers) : customers);
         setCachedCustomers(nextCustomers);
         await saveCustomers(nextCustomers);
+        await setCustomerSyncVersion(CUSTOMER_IMPORT_SYNC_VERSION);
       }
 
       if (canSyncOrders) {
         const orders = await runStep(
           orderDeltaAfter ? 'Syncing changed orders' : 'Syncing orders',
-          () => fetchOrders({ updatedAfter: orderDeltaAfter }).catch(() => [])
+          () => fetchOrders({ updatedAfter: orderDeltaAfter })
         );
         const nextOrders = (orderDeltaAfter ? mergeById(baselineOrders, orders) : orders)
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -255,7 +277,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       }
 
       if (canSyncUsers) {
-        const users = await runStep('Syncing users', () => fetchUsers().catch(() => []));
+        const users = await runStep('Syncing users', () => fetchUsers());
         setCachedUsers(users);
       }
 
@@ -433,7 +455,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     if (isOfflineMode) throw new Error('Cannot create customers while offline.');
     const created = await apiCreateCustomer(customer);
     setCachedCustomers(prev => {
-      const next = [created, ...prev];
+      const next = sortCustomers([created, ...prev.filter(item => item.id !== created.id)]);
       saveCustomers(next);
       return next;
     });
@@ -469,6 +491,27 @@ export const [DataProvider, useData] = createContextHook(() => {
       saveOrders(next);
       return next;
     });
+    if (created.customerId && orderData.customerName.trim()) {
+      setCachedCustomers(prev => {
+        const existing = prev.find(customer => customer.id === created.customerId);
+        const nextCustomer: Customer = {
+          id: created.customerId!,
+          name: orderData.customerName,
+          phone: orderData.customerPhone,
+          email: orderData.customerEmail,
+          address: orderData.customerAddress,
+          latitude: orderData.latitude,
+          longitude: orderData.longitude,
+          company: existing?.company,
+          isActive: true,
+          createdAt: existing?.createdAt ?? created.createdAt,
+          ecwidId: existing?.ecwidId,
+        };
+        const next = sortCustomers([nextCustomer, ...prev.filter(customer => customer.id !== created.customerId)]);
+        saveCustomers(next);
+        return next;
+      });
+    }
     showToast('Order placed successfully!', 'success');
     return created;
   }, [isOfflineMode, products, refreshPendingCount, showToast]);
