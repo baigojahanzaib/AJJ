@@ -30,13 +30,13 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
     const load = async () => {
       try {
-        const [storedUser, viewAsUser] = await Promise.all([
+        const [storedUser] = await Promise.all([
           AsyncStorage.getItem(AUTH_STORAGE_KEY),
-          AsyncStorage.getItem(VIEW_AS_USER_KEY),
+          AsyncStorage.removeItem(VIEW_AS_USER_KEY),
         ]);
 
         if (!mounted) return;
-        setIsViewingAsUser(viewAsUser === 'true');
+        setIsViewingAsUser(false);
 
         if (storedUser) {
           const parsed = JSON.parse(storedUser) as User;
@@ -107,7 +107,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   }, []);
 
   const switchToUserView = useCallback(async () => {
-    await AsyncStorage.setItem(VIEW_AS_USER_KEY, 'true');
+    await AsyncStorage.removeItem(VIEW_AS_USER_KEY);
     setIsViewingAsUser(true);
   }, []);
 

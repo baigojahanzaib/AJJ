@@ -18,7 +18,7 @@ export function useProtectedRoute() {
         const inSalesGroup = currentGroup === '(sales)';
         const inSharedOrderRoute = currentGroup === 'order';
         const inProtectedShopRoute =
-            currentGroup === '(shop)' && (currentScreen === 'checkout' || currentScreen === 'orders');
+            currentGroup === '(shop)' && currentScreen === 'checkout';
         const inProtectedRoute = inAdminGroup || inSalesGroup || inSharedOrderRoute || inProtectedShopRoute;
 
         console.log('[AuthGuard] Check:', { isAuthenticated, inProtectedRoute, segments });

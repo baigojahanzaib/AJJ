@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ClipboardList } from 'lucide-react-native';
+import { ClipboardList, LockKeyhole } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import OrderCard from '@/components/OrderCard';
@@ -11,7 +11,7 @@ import Colors from '@/constants/colors';
 
 export default function ShopOrdersScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const { orders: allOrders } = useData();
   const userEmail = user?.email.trim().toLowerCase() ?? '';
 
@@ -33,6 +33,23 @@ export default function ShopOrdersScreen() {
         return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
       });
   }, [allOrders, user, userEmail]);
+
+  if (!isAuthenticated || !user) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Orders</Text>
+        </View>
+        <View style={styles.emptyState}>
+          <LockKeyhole size={64} color={Colors.light.textTertiary} />
+          <Text style={styles.emptyTitle}>Sign in to view orders</Text>
+          <Text style={styles.emptySubtitle}>Guest shopping is available, but order history is linked to your account.</Text>
+          <Button title="Sign In" onPress={() => router.push('/(auth)/sign-in' as any)} style={styles.emptyButton} />
+          <Button title="Browse Products" variant="secondary" onPress={() => router.push('/(shop)/catalog' as any)} style={styles.secondaryButton} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -112,5 +129,8 @@ const styles = StyleSheet.create({
   },
   emptyButton: {
     marginTop: 24,
+  },
+  secondaryButton: {
+    marginTop: 10,
   },
 });

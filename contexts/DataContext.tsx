@@ -157,15 +157,18 @@ export const [DataProvider, useData] = createContextHook(() => {
       setCachedCategories(categories);
       await Promise.all([saveProducts(products), saveCategories(categories)]);
 
-      const imageCacheResult = await cacheProductImages(
+      void cacheProductImages(
         products,
         imageCacheIndexRef.current,
-        { cacheMode: 'all', concurrency: 6 }
-      );
-      if (imageCacheResult.updated) {
-        imageCacheIndexRef.current = imageCacheResult.index;
-        setImageCacheIndex(imageCacheResult.index);
-      }
+        { cacheMode: 'primary', concurrency: 3, maxImages: 250 }
+      ).then((imageCacheResult) => {
+        if (imageCacheResult.updated) {
+          imageCacheIndexRef.current = imageCacheResult.index;
+          setImageCacheIndex(imageCacheResult.index);
+        }
+      }).catch((error) => {
+        console.warn('[Data] Product image cache refresh failed:', error);
+      });
 
       if (isAuthenticated) {
         const [customers, orders, users] = await Promise.all([
@@ -181,7 +184,7 @@ export const [DataProvider, useData] = createContextHook(() => {
 
       await setLastSyncTimestamp(new Date().toISOString());
       if (!options?.silent) {
-        showToast('Website data synced from Supabase', 'success');
+        showToast('Website data synced', 'success');
       }
     } catch (error) {
       console.error('[Data] Website API sync failed:', error);
