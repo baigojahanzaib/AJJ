@@ -1,10 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Customer, Order, OrderStatus, Product, User } from '@/types';
 
-const API_BASE_URL =
-  (process.env.EXPO_PUBLIC_BAIGO_API_URL ||
+function normalizeApiBaseUrl(value: string): string {
+  const trimmed = value.replace(/\/+$/, '');
+  return trimmed === 'https://e-order.co.za' ? 'https://api.e-order.co.za' : trimmed;
+}
+
+const API_BASE_URL = normalizeApiBaseUrl(
+  process.env.EXPO_PUBLIC_BAIGO_API_URL ||
     process.env.EXPO_PUBLIC_API_BASE_URL ||
-    'https://e-order.co.za').replace(/\/+$/, '');
+    'https://api.e-order.co.za'
+);
 
 const ACCESS_TOKEN_KEY = '@baigo_api_access_token';
 const REFRESH_TOKEN_KEY = '@baigo_api_refresh_token';
@@ -19,9 +25,22 @@ type Paginated<T> = {
   next?: string | null;
 };
 
+type FetchListOptions = {
+  updatedAfter?: string | null;
+};
+
 function joinUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function withQuery(path: string, params: Record<string, string | null | undefined>): string {
+  const query = Object.entries(params)
+    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value as string)}`)
+    .join('&');
+  if (!query) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}${query}`;
 }
 
 async function readAccessToken(): Promise<string | null> {
@@ -270,14 +289,18 @@ export function normalizeOrder(raw: any): Order {
   };
 }
 
-async function collectPaginated<T>(path: string, mapper: (value: any) => T): Promise<T[]> {
-  const first = await apiFetch<Paginated<any> | any[]>(path);
+async function collectPaginated<T>(
+  path: string,
+  mapper: (value: any) => T,
+  options: { auth?: boolean } = {}
+): Promise<T[]> {
+  const first = await apiFetch<Paginated<any> | any[]>(path, { auth: options.auth });
   if (Array.isArray(first)) return first.map(mapper);
 
   const rows: T[] = (first.results ?? []).map(mapper);
   let next = first.next;
   while (next) {
-    const page = await apiFetch<Paginated<any>>(next);
+    const page = await apiFetch<Paginated<any>>(next, { auth: options.auth });
     rows.push(...(page.results ?? []).map(mapper));
     next = page.next;
   }
@@ -327,12 +350,36 @@ export async function logoutFromApi() {
   }
 }
 
-export const fetchProducts = () => collectPaginated('/api/mobile/products/', normalizeProduct);
-export const fetchCategories = () => collectPaginated('/api/mobile/categories/', normalizeCategory);
-export const fetchCustomers = () => collectPaginated('/api/customers/', normalizeCustomer);
-export const fetchOrders = () => collectPaginated('/api/orders/', normalizeOrder);
-export async function fetchUsers(): Promise<User[]> {
-  const data = await apiFetch<{ results: any[] }>('/api/v2/users/');
+export const fetchProducts = (options: FetchListOptions = {}) => (
+  collectPaginated(
+    withQuery('/api/mobile/products/', { updated_after: options.updatedAfter }),
+    normalizeProduct,
+    { auth: false }
+  )
+);
+export const fetchCategories = (options: FetchListOptions = {}) => (
+  collectPaginated(
+    withQuery('/api/mobile/categories/', { updated_after: options.updatedAfter }),
+    normalizeCategory,
+    { auth: false }
+  )
+);
+export const fetchCustomers = (options: FetchListOptions = {}) => (
+  collectPaginated(
+    withQuery('/api/customers/', { updated_after: options.updatedAfter }),
+    normalizeCustomer
+  )
+);
+export const fetchOrders = (options: FetchListOptions = {}) => (
+  collectPaginated(
+    withQuery('/api/orders/', { updated_after: options.updatedAfter }),
+    normalizeOrder
+  )
+);
+export async function fetchUsers(options: FetchListOptions = {}): Promise<User[]> {
+  const data = await apiFetch<{ results: any[] }>(
+    withQuery('/api/v2/users/', { updated_after: options.updatedAfter })
+  );
   return (data.results ?? []).map(normalizeUser);
 }
 

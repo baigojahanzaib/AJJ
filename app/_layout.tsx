@@ -10,6 +10,7 @@ import { DataProvider } from "@/contexts/DataContext";
 import { CartProvider } from "@/contexts/CartContext";
 import { OfflineProvider } from "@/contexts/OfflineContext";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { SyncProgressBanner } from "@/components/SyncProgressBanner";
 import { RemoteConfigProvider } from "@/contexts/RemoteConfigContext";
 import { UpdateHandler } from "@/components/UpdateHandler";
 import { useProtectedRoute } from "@/hooks/useProtectedRoute";
@@ -51,6 +52,7 @@ export default function RootLayout() {
                     <DataProvider>
                       <CartProvider>
                         <RootLayoutNav />
+                        <SyncProgressBanner />
                         <OfflineBanner />
                       </CartProvider>
                     </DataProvider>

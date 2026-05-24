@@ -7,6 +7,7 @@ import {
   saveCustomers, getCachedCustomers,
   saveOrders, getCachedOrders,
   setLastSyncTimestamp,
+  getLastSyncTimestamp,
 } from '@/lib/offline-storage';
 import { queueOrder, queueOrderUpdate, updatePendingOrder } from '@/lib/sync-manager';
 import { useOffline } from '@/contexts/OfflineContext';
@@ -45,6 +46,13 @@ import {
 
 export type CatalogSortOption = 'default' | 'price_low' | 'price_high';
 export type CatalogFilter = { type: 'all' | 'category' | 'ribbon'; id: string | null };
+export type SyncProgress = {
+  active: boolean;
+  label: string;
+  completed: number;
+  total: number;
+  mode: 'full' | 'delta';
+};
 
 function withoutId<T extends { id?: unknown }>(updates: T): Omit<T, 'id'> {
   const result = { ...updates } as T & { id?: unknown };
@@ -56,6 +64,13 @@ function compactObject<T extends object>(value: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
   ) as Partial<T>;
+}
+
+function mergeById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+  if (incoming.length === 0) return existing;
+  const byId = new Map(existing.map(item => [item.id, item]));
+  incoming.forEach(item => byId.set(item.id, item));
+  return Array.from(byId.values());
 }
 
 function variantIdForOrderItem(item: Order['items'][number], products: Product[]): number | null {
@@ -80,6 +95,7 @@ function orderToApiPayload(orderData: Omit<Order, 'id' | 'orderNumber' | 'create
     .map(item => ({
       variant_id: variantIdForOrderItem(item, products),
       quantity: item.quantity,
+      unit_price: item.unitPrice,
     }))
     .filter(item => item.variant_id !== null && item.quantity > 0);
 
@@ -116,6 +132,13 @@ export const [DataProvider, useData] = createContextHook(() => {
   const [sortBy, setSortBy] = useState<CatalogSortOption>('default');
   const [hasHydratedCache, setHasHydratedCache] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress>({
+    active: false,
+    label: '',
+    completed: 0,
+    total: 0,
+    mode: 'full',
+  });
   const autoSyncKeyRef = useRef<string | null>(null);
 
   const loadCachedData = useCallback(async () => {
@@ -148,17 +171,57 @@ export const [DataProvider, useData] = createContextHook(() => {
     if (isSyncing || isOfflineMode) return;
 
     setIsSyncing(true);
+    const syncStartedAt = new Date().toISOString();
+    const baselineProducts = _seed?.productsCache ?? cachedProducts;
+    const baselineCategories = _seed?.categoriesCache ?? cachedCategories;
+    const baselineCustomers = _seed?.customersCache ?? cachedCustomers;
+    const baselineOrders = _seed?.ordersCache ?? cachedOrders;
+    let lastSync: string | null = null;
     try {
-      const [products, categories] = await Promise.all([
-        fetchProducts(),
-        fetchCategories(),
-      ]);
-      setCachedProducts(products);
-      setCachedCategories(categories);
-      await Promise.all([saveProducts(products), saveCategories(categories)]);
+      lastSync = await getLastSyncTimestamp();
+    } catch (error) {
+      console.warn('[Data] Could not read last sync timestamp:', error);
+    }
+    const productDeltaAfter = lastSync && baselineProducts.length > 0 ? lastSync : null;
+    const categoryDeltaAfter = lastSync && baselineCategories.length > 0 ? lastSync : null;
+    const customerDeltaAfter = lastSync && baselineCustomers.length > 0 ? lastSync : null;
+    const orderDeltaAfter = lastSync && baselineOrders.length > 0 ? lastSync : null;
+    const syncMode: SyncProgress['mode'] = productDeltaAfter || categoryDeltaAfter || customerDeltaAfter || orderDeltaAfter
+      ? 'delta'
+      : 'full';
+    const canSyncCustomers = isAuthenticated && (user?.role === 'admin' || user?.role === 'sales_rep');
+    const canSyncOrders = isAuthenticated;
+    const canSyncUsers = isAuthenticated && user?.role === 'admin';
+    const totalSteps = 2 + (canSyncCustomers ? 1 : 0) + (canSyncOrders ? 1 : 0) + (canSyncUsers ? 1 : 0);
+    let completed = 0;
+
+    const runStep = async <T,>(label: string, task: () => Promise<T>) => {
+      setSyncProgress({ active: true, label, completed, total: totalSteps, mode: syncMode });
+      const result = await task();
+      completed += 1;
+      setSyncProgress({ active: true, label, completed, total: totalSteps, mode: syncMode });
+      return result;
+    };
+
+    try {
+      const products = await runStep(
+        productDeltaAfter ? 'Syncing changed products' : 'Syncing products',
+        () => fetchProducts({ updatedAfter: productDeltaAfter })
+      );
+      const nextProducts = productDeltaAfter ? mergeById(baselineProducts, products) : products;
+      setCachedProducts(nextProducts);
+      await saveProducts(nextProducts);
+
+      const categories = await runStep(
+        categoryDeltaAfter ? 'Syncing changed categories' : 'Syncing categories',
+        () => fetchCategories({ updatedAfter: categoryDeltaAfter })
+      );
+      const nextCategories = categoryDeltaAfter ? mergeById(baselineCategories, categories) : categories;
+      setCachedCategories(nextCategories);
+      await saveCategories(nextCategories);
 
       void cacheProductImages(
-        products,
+        nextProducts,
         imageCacheIndexRef.current,
         { cacheMode: 'primary', concurrency: 3, maxImages: 250 }
       ).then((imageCacheResult) => {
@@ -170,19 +233,33 @@ export const [DataProvider, useData] = createContextHook(() => {
         console.warn('[Data] Product image cache refresh failed:', error);
       });
 
-      if (isAuthenticated) {
-        const [customers, orders, users] = await Promise.all([
-          user?.role === 'admin' || user?.role === 'sales_rep' ? fetchCustomers().catch(() => []) : Promise.resolve([]),
-          fetchOrders().catch(() => []),
-          user?.role === 'admin' ? fetchUsers().catch(() => []) : Promise.resolve([]),
-        ]);
-        setCachedCustomers(customers);
-        setCachedOrders(orders);
-        setCachedUsers(users);
-        await Promise.all([saveCustomers(customers), saveOrders(orders)]);
+      if (canSyncCustomers) {
+        const customers = await runStep(
+          customerDeltaAfter ? 'Syncing changed customers' : 'Syncing customers',
+          () => fetchCustomers({ updatedAfter: customerDeltaAfter }).catch(() => [])
+        );
+        const nextCustomers = customerDeltaAfter ? mergeById(baselineCustomers, customers) : customers;
+        setCachedCustomers(nextCustomers);
+        await saveCustomers(nextCustomers);
       }
 
-      await setLastSyncTimestamp(new Date().toISOString());
+      if (canSyncOrders) {
+        const orders = await runStep(
+          orderDeltaAfter ? 'Syncing changed orders' : 'Syncing orders',
+          () => fetchOrders({ updatedAfter: orderDeltaAfter }).catch(() => [])
+        );
+        const nextOrders = (orderDeltaAfter ? mergeById(baselineOrders, orders) : orders)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setCachedOrders(nextOrders);
+        await saveOrders(nextOrders);
+      }
+
+      if (canSyncUsers) {
+        const users = await runStep('Syncing users', () => fetchUsers().catch(() => []));
+        setCachedUsers(users);
+      }
+
+      await setLastSyncTimestamp(syncStartedAt);
       if (!options?.silent) {
         showToast('Website data synced', 'success');
       }
@@ -192,8 +269,19 @@ export const [DataProvider, useData] = createContextHook(() => {
       throw error;
     } finally {
       setIsSyncing(false);
+      setSyncProgress(current => ({ ...current, active: false, label: '', completed: 0, total: 0 }));
     }
-  }, [isAuthenticated, isOfflineMode, isSyncing, showToast, user?.role]);
+  }, [
+    cachedCategories,
+    cachedCustomers,
+    cachedOrders,
+    cachedProducts,
+    isAuthenticated,
+    isOfflineMode,
+    isSyncing,
+    showToast,
+    user?.role,
+  ]);
 
   const loadCachedDataAndSync = useCallback(async () => {
     const seed = await loadCachedData();
@@ -545,6 +633,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     syncOrderStatusToWebsiteAdmin,
     loadCachedDataAndSync,
     isSyncing,
+    syncProgress,
     addUser,
     updateUser,
     deleteUser,

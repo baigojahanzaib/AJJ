@@ -345,10 +345,12 @@ export default function SalesCart() {
     setIsSubmitting(true);
 
     try {
+      let orderCustomerId = customer?.id;
+
       // If we don't have a selected customer (meaning we created a new one), save it to the DB
       if (!customer && newCustomerData) {
         try {
-          await addCustomer({
+          const createdCustomer = await addCustomer({
             name: newCustomerData.name,
             phone: newCustomerData.phone,
             email: newCustomerData.email,
@@ -357,6 +359,7 @@ export default function SalesCart() {
             longitude: newCustomerData.longitude,
             isActive: true,
           });
+          orderCustomerId = createdCustomer.id;
           console.log('[Cart] New customer created during order submission');
         } catch (err) {
           console.error('[Cart] Error creating customer:', err);
@@ -370,6 +373,7 @@ export default function SalesCart() {
       const newOrder = await addOrder({
         salesRepId: user?.id || '',
         salesRepName: user?.name || '',
+        customerId: orderCustomerId,
         customerName: customerData.name,
         customerPhone: customerData.phone,
         customerEmail: customerData.email,
