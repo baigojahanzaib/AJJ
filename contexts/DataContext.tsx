@@ -156,6 +156,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     mode: 'full',
   });
   const autoSyncKeyRef = useRef<string | null>(null);
+  const syncInFlightRef = useRef(false);
 
   const loadCachedData = useCallback(async () => {
     const [productsCache, categoriesCache, customersCache, ordersCache, imageIndex] = await Promise.all([
@@ -184,8 +185,9 @@ export const [DataProvider, useData] = createContextHook(() => {
     },
     options?: { silent?: boolean }
   ) => {
-    if (isSyncing || isOfflineMode) return;
+    if (syncInFlightRef.current || isOfflineMode) return;
 
+    syncInFlightRef.current = true;
     setIsSyncing(true);
     const syncStartedAt = new Date().toISOString();
     const baselineProducts = _seed?.productsCache ?? cachedProducts;
@@ -290,6 +292,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       if (!options?.silent) showToast('Sync failed. Some data may be outdated.', 'error');
       throw error;
     } finally {
+      syncInFlightRef.current = false;
       setIsSyncing(false);
       setSyncProgress(current => ({ ...current, active: false, label: '', completed: 0, total: 0 }));
     }
@@ -300,7 +303,6 @@ export const [DataProvider, useData] = createContextHook(() => {
     cachedProducts,
     isAuthenticated,
     isOfflineMode,
-    isSyncing,
     showToast,
     user?.role,
   ]);
@@ -320,7 +322,8 @@ export const [DataProvider, useData] = createContextHook(() => {
     if (autoSyncKeyRef.current === key) return;
     autoSyncKeyRef.current = key;
     syncData(undefined, { silent: true }).catch(() => {
-      autoSyncKeyRef.current = null;
+      // Keep this key marked as attempted so an auth/network failure does not
+      // restart the same auto-sync loop on every cache state change.
     });
   }, [hasHydratedCache, isOfflineMode, syncData, user?.id]);
 

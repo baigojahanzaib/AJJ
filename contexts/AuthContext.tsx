@@ -4,6 +4,7 @@ import createContextHook from '@nkzw/create-context-hook';
 import { User, AuthState } from '@/types';
 import {
   fetchCurrentUser,
+  hasStoredApiCredentials,
   loginWithApi,
   logoutFromApi,
   registerWithApi,
@@ -38,15 +39,28 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         if (!mounted) return;
         setIsViewingAsUser(false);
 
-        if (storedUser) {
+        const hasApiCredentials = await hasStoredApiCredentials();
+
+        if (storedUser && hasApiCredentials) {
           const parsed = JSON.parse(storedUser) as User;
           setState({ user: parsed, isAuthenticated: true, isLoading: false });
         } else {
+          if (storedUser && !hasApiCredentials) {
+            await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+          }
           setState(prev => ({ ...prev, isLoading: false }));
         }
 
         const freshUser = await fetchCurrentUser();
-        if (!mounted || !freshUser) return;
+        if (!mounted) return;
+        if (!freshUser) {
+          const stillHasApiCredentials = await hasStoredApiCredentials();
+          if (storedUser && !stillHasApiCredentials) {
+            await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+            setState({ user: null, isAuthenticated: false, isLoading: false });
+          }
+          return;
+        }
         await persistAuthenticatedUser(freshUser);
       } catch (error) {
         console.error('[Auth] Failed to load website API session:', error);

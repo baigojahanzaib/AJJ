@@ -1,8 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { StyleSheet, Text, View, FlatList, TouchableOpacity, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { UserPlus, Search, X, ChevronRight } from 'lucide-react-native';
+import { UserPlus, Search, X, ChevronRight, RefreshCw } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import { Customer } from '@/types';
 import Button from '@/components/Button';
@@ -10,8 +10,18 @@ import Colors from '@/constants/colors';
 
 export default function SalesCustomers() {
   const router = useRouter();
-  const { activeCustomers } = useData();
+  const { activeCustomers, loadCachedDataAndSync, isSyncing } = useData();
   const [searchQuery, setSearchQuery] = useState('');
+  const autoRefreshAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    if (activeCustomers.length === 0 && !isSyncing && !autoRefreshAttemptedRef.current) {
+      autoRefreshAttemptedRef.current = true;
+      loadCachedDataAndSync().catch(error => {
+        console.error('[Customers] Unable to refresh customers:', error);
+      });
+    }
+  }, [activeCustomers.length, isSyncing, loadCachedDataAndSync]);
 
   // No need to memoize activeCustomers since it comes from DataContext already filtered for isActive
 
@@ -62,11 +72,22 @@ export default function SalesCustomers() {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Customers</Text>
-          <Text style={styles.subtitle}>{activeCustomers.length} customer{activeCustomers.length !== 1 ? 's' : ''}</Text>
+          <Text style={styles.subtitle}>
+            {isSyncing ? 'Syncing customers...' : `${activeCustomers.length} customer${activeCustomers.length !== 1 ? 's' : ''}`}
+          </Text>
         </View>
-        <TouchableOpacity style={styles.addButton} onPress={handleAddPress}>
-          <UserPlus size={22} color={Colors.light.primaryForeground} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.refreshButton}
+            onPress={() => loadCachedDataAndSync().catch(error => console.error('[Customers] Manual sync failed:', error))}
+            disabled={isSyncing}
+          >
+            <RefreshCw size={20} color={Colors.light.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.addButton} onPress={handleAddPress}>
+            <UserPlus size={22} color={Colors.light.primaryForeground} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.searchContainer}>
@@ -98,9 +119,10 @@ export default function SalesCustomers() {
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No customers found</Text>
             <Button
-              title="Add Customer"
-              onPress={handleAddPress}
+              title={isSyncing ? 'Syncing...' : 'Refresh Customers'}
+              onPress={() => loadCachedDataAndSync().catch(error => console.error('[Customers] Empty sync failed:', error))}
               variant="outline"
+              loading={isSyncing}
               style={styles.emptyButton}
             />
           </View>
@@ -138,6 +160,19 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     backgroundColor: Colors.light.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  refreshButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.light.surfaceSecondary,
     justifyContent: 'center',
     alignItems: 'center',
   },

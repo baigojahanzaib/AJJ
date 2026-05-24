@@ -51,6 +51,11 @@ async function readRefreshToken(): Promise<string | null> {
   return AsyncStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
+export async function hasStoredApiCredentials(): Promise<boolean> {
+  const [access, refresh] = await Promise.all([readAccessToken(), readRefreshToken()]);
+  return Boolean(access || refresh);
+}
+
 export async function saveApiTokens(tokens: { access?: string; refresh?: string }) {
   const writes: Promise<void>[] = [];
   if (tokens.access) writes.push(AsyncStorage.setItem(ACCESS_TOKEN_KEY, tokens.access));
@@ -91,8 +96,11 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   };
 
   if (auth) {
-    const token = await readAccessToken();
-    if (token) requestHeaders.Authorization = `Bearer ${token}`;
+    const token = await readAccessToken() ?? await refreshAccessToken();
+    if (!token) {
+      throw new Error('Please log in again to sync data and submit orders.');
+    }
+    requestHeaders.Authorization = `Bearer ${token}`;
   }
 
   const response = await fetch(joinUrl(path), {
@@ -110,6 +118,8 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
         headers: { ...(headers as Record<string, string> | undefined), Authorization: `Bearer ${token}` },
       });
     }
+    await clearApiTokens();
+    throw new Error('Your session expired. Please log in again.');
   }
 
   const text = await response.text();
