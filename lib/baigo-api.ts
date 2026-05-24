@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Customer, Order, OrderStatus, Product, User } from '@/types';
+import { normalizeOrderStatus } from '@/lib/order-status';
 
 function normalizeApiBaseUrl(value: string): string {
   const trimmed = value.replace(/\/+$/, '');
@@ -162,31 +163,11 @@ function numberValue(value: unknown, fallback = 0): number {
 }
 
 function statusFromApi(status: string): OrderStatus {
-  return ({
-    quotation: 'pending',
-    draft: 'pending',
-    placed: 'pending',
-    confirmed: 'confirmed',
-    awaiting_procurement: 'confirmed',
-    processing: 'processing',
-    ready: 'processing',
-    ready_to_deliver: 'processing',
-    dispatched: 'shipped',
-    delivered: 'delivered',
-    cancelled: 'cancelled',
-    refunded: 'cancelled',
-  } as Record<string, OrderStatus>)[status] ?? (status as OrderStatus);
+  return normalizeOrderStatus(status);
 }
 
 export function statusToApi(status: OrderStatus): string {
-  return ({
-    pending: 'placed',
-    confirmed: 'confirmed',
-    processing: 'processing',
-    shipped: 'dispatched',
-    delivered: 'delivered',
-    cancelled: 'cancelled',
-  } as Record<OrderStatus, string>)[status];
+  return normalizeOrderStatus(status);
 }
 
 export function normalizeProduct(raw: any): Product {
@@ -224,6 +205,8 @@ export function normalizeCategory(raw: any): Category {
     isActive: Boolean(raw.isActive ?? raw.is_active ?? true),
     createdAt: raw.createdAt ?? raw.created_at ?? new Date().toISOString(),
     ecwidId: raw.ecwidId ?? raw.ecwid_id,
+    productCount: numberValue(raw.productCount ?? raw.product_count, 0),
+    sortOrder: numberValue(raw.sortOrder ?? raw.sort_order, 0),
   };
 }
 

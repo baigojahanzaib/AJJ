@@ -8,6 +8,8 @@ import {
   saveOrders, getCachedOrders,
   setLastSyncTimestamp,
   getLastSyncTimestamp,
+  getCatalogSyncVersion,
+  setCatalogSyncVersion,
   getCustomerSyncVersion,
   setCustomerSyncVersion,
 } from '@/lib/offline-storage';
@@ -45,6 +47,7 @@ import {
   updateProduct as apiUpdateProduct,
   updateUser as apiUpdateUser,
 } from '@/lib/baigo-api';
+import { normalizeOrderStatus } from '@/lib/order-status';
 
 export type CatalogSortOption = 'default' | 'price_low' | 'price_high';
 export type CatalogFilter = { type: 'all' | 'category' | 'ribbon'; id: string | null };
@@ -57,6 +60,7 @@ export type SyncProgress = {
 };
 
 const CUSTOMER_IMPORT_SYNC_VERSION = 'convex-customers-2026-05-24-v1';
+const CATALOG_SOURCE_SYNC_VERSION = 'website-catalog-source-2026-05-24-v1';
 
 function withoutId<T extends { id?: unknown }>(updates: T): Omit<T, 'id'> {
   const result = { ...updates } as T & { id?: unknown };
@@ -195,10 +199,12 @@ export const [DataProvider, useData] = createContextHook(() => {
     const baselineCustomers = _seed?.customersCache ?? cachedCustomers;
     const baselineOrders = _seed?.ordersCache ?? cachedOrders;
     let lastSync: string | null = null;
+    let catalogSyncVersion: string | null = null;
     let customerSyncVersion: string | null = null;
     try {
-      [lastSync, customerSyncVersion] = await Promise.all([
+      [lastSync, catalogSyncVersion, customerSyncVersion] = await Promise.all([
         getLastSyncTimestamp(),
+        getCatalogSyncVersion(),
         getCustomerSyncVersion(),
       ]);
     } catch (error) {
@@ -207,9 +213,10 @@ export const [DataProvider, useData] = createContextHook(() => {
     const canSyncCustomers = isAuthenticated && (user?.role === 'admin' || user?.role === 'sales_rep');
     const canSyncOrders = isAuthenticated;
     const canSyncUsers = isAuthenticated && user?.role === 'admin';
+    const needsCatalogSourceRefresh = catalogSyncVersion !== CATALOG_SOURCE_SYNC_VERSION;
     const needsCustomerImportRefresh = canSyncCustomers && customerSyncVersion !== CUSTOMER_IMPORT_SYNC_VERSION;
-    const productDeltaAfter = lastSync && baselineProducts.length > 0 ? lastSync : null;
-    const categoryDeltaAfter = lastSync && baselineCategories.length > 0 ? lastSync : null;
+    const productDeltaAfter = !needsCatalogSourceRefresh && lastSync && baselineProducts.length > 0 ? lastSync : null;
+    const categoryDeltaAfter = !needsCatalogSourceRefresh && lastSync && baselineCategories.length > 0 ? lastSync : null;
     const customerDeltaAfter = !needsCustomerImportRefresh && lastSync && baselineCustomers.length > 0 ? lastSync : null;
     const orderDeltaAfter = lastSync && baselineOrders.length > 0 ? lastSync : null;
     const syncMode: SyncProgress['mode'] = productDeltaAfter || categoryDeltaAfter || customerDeltaAfter || orderDeltaAfter
@@ -242,6 +249,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       const nextCategories = categoryDeltaAfter ? mergeById(baselineCategories, categories) : categories;
       setCachedCategories(nextCategories);
       await saveCategories(nextCategories);
+      await setCatalogSyncVersion(CATALOG_SOURCE_SYNC_VERSION);
 
       void cacheProductImages(
         nextProducts,
@@ -335,6 +343,16 @@ export const [DataProvider, useData] = createContextHook(() => {
 
   const activeProducts = useMemo(() => products.filter(p => p.isActive), [products]);
   const activeCategories = useMemo(() => categories.filter(c => c.isActive), [categories]);
+  const activeCatalogCategories = useMemo(() => {
+    const categoryIdsWithProducts = new Set(activeProducts.map(product => product.categoryId).filter(Boolean));
+    return activeCategories
+      .filter(category => (category.productCount ?? 0) > 0 || categoryIdsWithProducts.has(category.id))
+      .sort((a, b) => (
+        (b.productCount ?? 0) - (a.productCount ?? 0) ||
+        (a.sortOrder ?? 0) - (b.sortOrder ?? 0) ||
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      ));
+  }, [activeCategories, activeProducts]);
   const activeCustomers = useMemo(() => customers.filter(c => c.isActive), [customers]);
 
   const filteredSortedProducts = useMemo(() => {
@@ -522,17 +540,18 @@ export const [DataProvider, useData] = createContextHook(() => {
   const updateOrderStatus = useCallback(async (id: string, status: OrderStatus) => {
     const existing = getOrderById(id);
     if (!existing) return;
+    const nextStatus = normalizeOrderStatus(status);
     if (isOfflineMode) {
       const now = new Date().toISOString();
-      const nextOrders = orders.map(order => order.id === id ? { ...order, status, updatedAt: now } : order);
+      const nextOrders = orders.map(order => order.id === id ? { ...order, status: nextStatus, updatedAt: now } : order);
       setCachedOrders(nextOrders);
       await saveOrders(nextOrders);
       if (id.startsWith('TEMP-')) {
-        await updatePendingOrder(id, { status });
+        await updatePendingOrder(id, { status: nextStatus });
       } else {
         await queueOrderUpdate({
           orderId: id,
-          updates: { status },
+          updates: { status: nextStatus },
           editedBy: user?.id || 'offline-user',
           editedByName: user?.name || 'Offline User',
           changeDescription: 'Updated: status',
@@ -542,9 +561,9 @@ export const [DataProvider, useData] = createContextHook(() => {
       showToast('Order status saved offline. It will sync when online.', 'info');
       return;
     }
-    const updated = await apiUpdateOrderStatus(existing.orderNumber, status);
+    const updated = await apiUpdateOrderStatus(existing.orderNumber, nextStatus);
     setCachedOrders(prev => {
-      const next = prev.map(order => order.id === existing.id ? updated : order);
+      const next = prev.map(order => order.id === existing.id ? { ...updated, status: normalizeOrderStatus(updated.status) } : order);
       saveOrders(next);
       return next;
     });
@@ -558,7 +577,10 @@ export const [DataProvider, useData] = createContextHook(() => {
     changeDescription: string
   ) => {
     const existing = getOrderById(id);
-    const safeUpdates = compactObject(withoutId(updates));
+    const safeUpdates = compactObject({
+      ...withoutId(updates),
+      status: updates.status ? normalizeOrderStatus(updates.status) : undefined,
+    });
     if (!existing) return;
     if (isOfflineMode) {
       const now = new Date().toISOString();
@@ -577,7 +599,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     }
     const updated = await apiUpdateOrder(existing.orderNumber, safeUpdates, changeDescription);
     setCachedOrders(prev => {
-      const next = prev.map(order => order.id === existing.id ? updated : order);
+      const next = prev.map(order => order.id === existing.id ? { ...updated, status: normalizeOrderStatus(updated.status) } : order);
       saveOrders(next);
       return next;
     });
@@ -631,7 +653,7 @@ export const [DataProvider, useData] = createContextHook(() => {
       totalRevenue: orders.reduce((sum, order) => sum + order.total, 0),
       totalProducts: products.length,
       totalUsers: users.filter(entry => entry.role === 'sales_rep').length,
-      pendingOrders: orders.filter(order => order.status === 'pending').length,
+      pendingOrders: orders.filter(order => ['quotation', 'draft', 'placed'].includes(order.status)).length,
       ordersThisMonth: ordersThisMonth.length,
       revenueThisMonth: ordersThisMonth.reduce((sum, order) => sum + order.total, 0),
     };
@@ -644,6 +666,7 @@ export const [DataProvider, useData] = createContextHook(() => {
     users,
     activeProducts,
     activeCategories,
+    activeCatalogCategories,
     activeCustomers,
     filteredSortedProducts,
     searchQuery,

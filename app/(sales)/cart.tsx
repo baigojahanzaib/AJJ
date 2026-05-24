@@ -368,7 +368,7 @@ export default function SalesCart() {
         tax: effectiveTax,
         discount: 0,
         total: effectiveTotal,
-        status: 'pending',
+        status: 'placed',
         notes,
       });
 

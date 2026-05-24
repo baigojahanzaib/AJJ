@@ -99,7 +99,7 @@ export default function ShopCheckoutScreen() {
         tax,
         discount: 0,
         total,
-        status: 'pending',
+        status: 'placed',
         notes,
       });
 

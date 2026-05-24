@@ -12,7 +12,7 @@ import Colors from '@/constants/colors';
 export default function ShopCatalogScreen() {
   const router = useRouter();
   const { isAuthenticated, user } = useAuth();
-  const { activeProducts, activeCategories, isSyncing } = useData();
+  const { activeProducts, activeCatalogCategories, isSyncing } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
 
@@ -21,8 +21,8 @@ export default function ShopCatalogScreen() {
   }, [activeProducts]);
 
   const categories = useMemo(() => {
-    return activeCategories;
-  }, [activeCategories]);
+    return activeCatalogCategories;
+  }, [activeCatalogCategories]);
 
   const filterItems = useMemo(() => [{ id: null, name: 'All' }, ...categories], [categories]);
 

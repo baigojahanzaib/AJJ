@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, Platform, StyleSheet, Text, View, ScrollView, TouchableOpacity, TextInput, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
@@ -6,7 +6,7 @@ import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import {
-  ArrowLeft, Plus, X, Check, ImagePlus, Trash2, ChevronDown, ChevronUp, Link2, Unlink, Edit2, Copy, Palette, Layers, Camera, RefreshCw
+  ArrowLeft, Plus, X, Check, ImagePlus, Trash2, ChevronDown, ChevronUp, Link2, Unlink, Edit2, Copy, Palette, Layers, Camera, RefreshCw, Search
 } from 'lucide-react-native';
 import { useData } from '@/contexts/DataContext';
 import Input from '@/components/Input';
@@ -233,6 +233,7 @@ export default function AddProductPage() {
   const [basePrice, setBasePrice] = useState(editingProduct?.basePrice?.toString() || '');
   const [stock, setStock] = useState(editingProduct?.stock?.toString() || '');
   const [selectedCategoryId, setSelectedCategoryId] = useState(editingProduct?.categoryId || '');
+  const [categorySearchQuery, setCategorySearchQuery] = useState('');
   const [images, setImages] = useState<string[]>(editingProduct?.images || []);
   const [variations, setVariations] = useState<ProductVariation[]>(editingProduct?.variations || []);
   const [combinations, setCombinations] = useState<ProductCombination[]>(editingProduct?.combinations || []);
@@ -262,7 +263,13 @@ export default function AddProductPage() {
     buttons: [] as { text: string; onPress?: () => void; style?: 'default' | 'cancel' | 'destructive' }[],
   });
 
+  const activeCategories = useMemo(() => categories.filter(c => c.isActive), [categories]);
   const selectedCategory = categories.find(c => c.id === selectedCategoryId);
+  const filteredCategoryOptions = useMemo(() => {
+    const query = categorySearchQuery.trim().toLowerCase();
+    if (!query) return activeCategories;
+    return activeCategories.filter(category => category.name.toLowerCase().includes(query));
+  }, [activeCategories, categorySearchQuery]);
   const canBuildCombinationMatrix = getCompleteVariations(variations).length >= 2;
 
   useEffect(() => {
@@ -276,6 +283,7 @@ export default function AddProductPage() {
       setBasePrice('');
       setStock('');
       setSelectedCategoryId('');
+      setCategorySearchQuery('');
       setImages([]);
       setVariations([]);
       setCombinations([]);
@@ -304,6 +312,7 @@ export default function AddProductPage() {
     setBasePrice('');
     setStock('');
     setSelectedCategoryId('');
+    setCategorySearchQuery('');
     setImages([]);
     setVariations([]);
     setCombinations([]);
@@ -334,6 +343,7 @@ export default function AddProductPage() {
     setBasePrice(editingProduct.basePrice?.toString() || '');
     setStock(editingProduct.stock?.toString() || '');
     setSelectedCategoryId(editingProduct.categoryId);
+    setCategorySearchQuery('');
     setImages([...(editingProduct.images || [])]);
     setVariations(editingProduct.variations.map(variation => ({
       ...variation,
@@ -860,17 +870,6 @@ export default function AddProductPage() {
       return;
     }
 
-    if (!selectedCategoryId) {
-      setAlertConfig({
-        visible: true,
-        title: 'No Category',
-        message: 'Please select a category.',
-        type: 'warning',
-        buttons: [{ text: 'OK', style: 'default' }],
-      });
-      return;
-    }
-
     if (images.length === 0) {
       setAlertConfig({
         visible: true,
@@ -901,7 +900,7 @@ export default function AddProductPage() {
       sku: sku.trim().toUpperCase(),
       basePrice: parsedBasePrice,
       images,
-      categoryId: selectedCategoryId,
+      categoryId: selectedCategoryId || '',
       isActive,
       variations,
       combinations: syncedCombinations,
@@ -1454,7 +1453,11 @@ export default function AddProductPage() {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Product Images</Text>
           <View style={styles.imagesContainer}>
@@ -1544,42 +1547,98 @@ export default function AddProductPage() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Category</Text>
-          <TouchableOpacity
-            style={styles.categoryPicker}
-            onPress={() => setShowCategoryPicker(!showCategoryPicker)}
-          >
-            <Text style={[
-              styles.categoryPickerText,
-              !selectedCategory && styles.categoryPickerPlaceholder
-            ]}>
-              {selectedCategory?.name || 'Select category'}
-            </Text>
-            <ChevronDown size={20} color={Colors.light.textSecondary} />
-          </TouchableOpacity>
+          <View style={styles.categoryPicker}>
+            <Search size={18} color={Colors.light.textTertiary} />
+            <TextInput
+              style={styles.categorySearchInput}
+              placeholder={selectedCategory?.name || 'Uncategorized'}
+              placeholderTextColor={selectedCategory ? Colors.light.text : Colors.light.textTertiary}
+              value={showCategoryPicker ? categorySearchQuery : selectedCategory?.name || ''}
+              onFocus={() => {
+                setCategorySearchQuery(selectedCategory?.name || '');
+                setShowCategoryPicker(true);
+              }}
+              onChangeText={(text) => {
+                setCategorySearchQuery(text);
+                if (selectedCategoryId && text !== selectedCategory?.name) {
+                  setSelectedCategoryId('');
+                }
+                setShowCategoryPicker(true);
+              }}
+              autoCapitalize="none"
+            />
+            {(selectedCategoryId || categorySearchQuery) ? (
+              <TouchableOpacity
+                style={styles.categoryPickerIconButton}
+                onPress={() => {
+                  setSelectedCategoryId('');
+                  setCategorySearchQuery('');
+                  setShowCategoryPicker(false);
+                  Haptics.selectionAsync();
+                }}
+              >
+                <X size={18} color={Colors.light.textTertiary} />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.categoryPickerIconButton}
+                onPress={() => setShowCategoryPicker(current => !current)}
+              >
+                <ChevronDown size={20} color={Colors.light.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
 
           {showCategoryPicker && (
             <View style={styles.categoryOptions}>
-              {categories.filter(c => c.isActive).map((category) => (
+              <ScrollView keyboardShouldPersistTaps="handled" nestedScrollEnabled>
                 <TouchableOpacity
-                  key={category.id}
                   style={[
                     styles.categoryOption,
-                    selectedCategoryId === category.id && styles.categoryOptionActive,
+                    !selectedCategoryId && styles.categoryOptionActive,
                   ]}
                   onPress={() => {
-                    setSelectedCategoryId(category.id);
+                    setSelectedCategoryId('');
+                    setCategorySearchQuery('');
                     setShowCategoryPicker(false);
                     Haptics.selectionAsync();
                   }}
                 >
                   <Text style={[
                     styles.categoryOptionText,
-                    selectedCategoryId === category.id && styles.categoryOptionTextActive,
+                    !selectedCategoryId && styles.categoryOptionTextActive,
                   ]}>
-                    {category.name}
+                    Uncategorized
                   </Text>
                 </TouchableOpacity>
-              ))}
+                {filteredCategoryOptions.map((category) => (
+                  <TouchableOpacity
+                    key={category.id}
+                    style={[
+                      styles.categoryOption,
+                      selectedCategoryId === category.id && styles.categoryOptionActive,
+                    ]}
+                    onPress={() => {
+                      setSelectedCategoryId(category.id);
+                      setCategorySearchQuery(category.name);
+                      setShowCategoryPicker(false);
+                      Haptics.selectionAsync();
+                    }}
+                  >
+                    <Text style={[
+                      styles.categoryOptionText,
+                      selectedCategoryId === category.id && styles.categoryOptionTextActive,
+                    ]}>
+                      {category.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {filteredCategoryOptions.length === 0 && (
+                  <View style={styles.categoryOptionEmpty}>
+                    <Text style={styles.categoryOptionEmptyText}>No matching categories</Text>
+                  </View>
+                )}
+              </ScrollView>
             </View>
           )}
         </View>
@@ -1864,12 +1923,26 @@ const styles = StyleSheet.create({
   categoryPicker: {
     backgroundColor: Colors.light.surface,
     borderRadius: 12,
-    padding: 16,
+    paddingHorizontal: 14,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: Colors.light.border,
+    gap: 10,
+  },
+  categorySearchInput: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '500' as const,
+    color: Colors.light.text,
+    paddingVertical: 14,
+  },
+  categoryPickerIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   categoryPickerText: {
     fontSize: 15,
@@ -1886,6 +1959,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.light.border,
     overflow: 'hidden',
+    maxHeight: 280,
   },
   categoryOption: {
     paddingVertical: 14,
@@ -1903,6 +1977,14 @@ const styles = StyleSheet.create({
   categoryOptionTextActive: {
     color: Colors.light.primaryForeground,
     fontWeight: '600' as const,
+  },
+  categoryOptionEmpty: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  categoryOptionEmptyText: {
+    fontSize: 14,
+    color: Colors.light.textTertiary,
   },
   addVariationBtn: {
     flexDirection: 'row',

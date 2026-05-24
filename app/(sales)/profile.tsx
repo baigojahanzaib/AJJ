@@ -165,7 +165,7 @@ export default function SalesProfile() {
   const stats = useMemo(() => {
     const totalSales = myOrders.reduce((sum, order) => sum + order.total, 0);
     const deliveredOrders = myOrders.filter(o => o.status === 'delivered').length;
-    const pendingOrders = myOrders.filter(o => o.status === 'pending').length;
+    const pendingOrders = myOrders.filter(o => ['quotation', 'draft', 'placed'].includes(o.status)).length;
 
     return {
       totalOrders: myOrders.length,

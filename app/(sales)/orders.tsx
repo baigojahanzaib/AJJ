@@ -10,15 +10,9 @@ import SearchBar from '@/components/SearchBar';
 import OrderCard from '@/components/OrderCard';
 import Colors from '@/constants/colors';
 import { OrderStatus } from '@/types';
+import { ORDER_STATUS_FILTERS } from '@/lib/order-status';
 
-const statusFilters: { id: OrderStatus | 'all'; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'pending', label: 'Pending' },
-  { id: 'confirmed', label: 'Confirmed' },
-  { id: 'processing', label: 'Processing' },
-  { id: 'shipped', label: 'Shipped' },
-  { id: 'delivered', label: 'Delivered' },
-];
+const statusFilters: { id: OrderStatus | 'all'; label: string }[] = ORDER_STATUS_FILTERS;
 
 export default function SalesOrders() {
   const router = useRouter();

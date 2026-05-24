@@ -143,7 +143,9 @@ const getStatusStyle = (status: string) => {
       return { backgroundColor: Colors.light.successLight };
     case 'cancelled':
       return { backgroundColor: Colors.light.dangerLight };
-    case 'pending':
+    case 'quotation':
+    case 'draft':
+    case 'placed':
       return { backgroundColor: Colors.light.warningLight };
     default:
       return { backgroundColor: Colors.light.infoLight };
@@ -156,7 +158,9 @@ const getStatusTextStyle = (status: string) => {
       return { color: Colors.light.successForeground };
     case 'cancelled':
       return { color: Colors.light.dangerForeground };
-    case 'pending':
+    case 'quotation':
+    case 'draft':
+    case 'placed':
       return { color: Colors.light.warningForeground };
     default:
       return { color: Colors.light.infoForeground };

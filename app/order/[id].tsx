@@ -32,15 +32,9 @@ import {
 } from '@/lib/product-pricing';
 import { generateAndSharePDF } from '@/lib/pdf-generator';
 import { generateAndShareCSV } from '@/lib/csv-generator';
+import { ORDER_STATUS_OPTIONS, normalizeOrderStatus } from '@/lib/order-status';
 
-const statusOptions: { id: OrderStatus; label: string; color: 'default' | 'success' | 'warning' | 'danger' | 'info' }[] = [
-  { id: 'pending', label: 'Pending', color: 'warning' },
-  { id: 'confirmed', label: 'Confirmed', color: 'info' },
-  { id: 'processing', label: 'Processing', color: 'info' },
-  { id: 'shipped', label: 'Shipped', color: 'info' },
-  { id: 'delivered', label: 'Delivered', color: 'success' },
-  { id: 'cancelled', label: 'Cancelled', color: 'danger' },
-];
+const statusOptions = ORDER_STATUS_OPTIONS;
 
 export default function OrderDetailPage() {
   const insets = useSafeAreaInsets();
@@ -65,7 +59,7 @@ export default function OrderDetailPage() {
   const [editCustomerEmail, setEditCustomerEmail] = useState('');
   const [editCustomerAddress, setEditCustomerAddress] = useState('');
   const [editNotes, setEditNotes] = useState('');
-  const [editStatus, setEditStatus] = useState<OrderStatus>('pending');
+  const [editStatus, setEditStatus] = useState<OrderStatus>('placed');
   const [editItems, setEditItems] = useState<OrderItem[]>([]);
   const [editDiscount, setEditDiscount] = useState('0');
   const [editTaxEnabled, setEditTaxEnabled] = useState(true);
@@ -193,7 +187,8 @@ export default function OrderDetailPage() {
     );
   }
 
-  const currentStatus = statusOptions.find(s => s.id === order.status);
+  const normalizedOrderStatus = normalizeOrderStatus(order.status);
+  const currentStatus = statusOptions.find(s => s.id === normalizedOrderStatus);
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -454,7 +449,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     setEditCustomerEmail(order.customerEmail);
     setEditCustomerAddress(order.customerAddress);
     setEditNotes(order.notes);
-    setEditStatus(order.status);
+    setEditStatus(normalizeOrderStatus(order.status));
     setEditItems([...order.items]);
     setEditDiscount(order.discount.toString());
     setEditTaxEnabled(taxSettings.enabled ? hasTaxApplied : false);
@@ -521,7 +516,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     if (editCustomerEmail !== order.customerEmail) changes.push('email');
     if (editCustomerAddress !== order.customerAddress) changes.push('address');
     if (editNotes !== order.notes) changes.push('notes');
-    if (editStatus !== order.status) changes.push('status');
+    if (editStatus !== normalizedOrderStatus) changes.push('status');
     if (editDiscount !== order.discount.toString()) changes.push('discount');
     if (JSON.stringify(normalizedItems) !== JSON.stringify(order.items)) changes.push('items');
     if (Math.abs(tax - order.tax) > 0.0001) changes.push('tax');
@@ -1376,14 +1371,14 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
                     key={status.id}
                     style={[
                       styles.statusOption,
-                      order.status === status.id && styles.statusOptionActive,
+                      normalizedOrderStatus === status.id && styles.statusOptionActive,
                     ]}
                     onPress={() => handleStatusSelect(status.id)}
                   >
                     <Text
                       style={[
                         styles.statusOptionText,
-                        order.status === status.id && styles.statusOptionTextActive,
+                        normalizedOrderStatus === status.id && styles.statusOptionTextActive,
                       ]}
                     >
                       {status.label}

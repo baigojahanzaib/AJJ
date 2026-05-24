@@ -23,6 +23,8 @@ export interface Category {
   isActive: boolean;
   createdAt: string;
   ecwidId?: number;
+  productCount?: number;
+  sortOrder?: number;
 }
 
 export interface VariationOption {
@@ -102,7 +104,19 @@ export interface OrderItem {
   totalPrice: number;
 }
 
-export type OrderStatus = 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+export type OrderStatus =
+  | 'quotation'
+  | 'draft'
+  | 'placed'
+  | 'confirmed'
+  | 'awaiting_procurement'
+  | 'processing'
+  | 'ready'
+  | 'ready_to_deliver'
+  | 'dispatched'
+  | 'delivered'
+  | 'cancelled'
+  | 'refunded';
 
 export interface OrderEditLog {
   editedAt: string;

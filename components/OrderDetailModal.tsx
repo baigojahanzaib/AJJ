@@ -8,6 +8,7 @@ import Badge from '@/components/Badge';
 import Button from '@/components/Button';
 import MapOptionsModal from '@/components/MapOptionsModal';
 import { useData } from '@/contexts/DataContext';
+import { ORDER_STATUS_OPTIONS, normalizeOrderStatus } from '@/lib/order-status';
 
 interface OrderDetailModalProps {
   visible: boolean;
@@ -18,14 +19,7 @@ interface OrderDetailModalProps {
   mode?: 'quick' | 'view' | 'edit';
 }
 
-const statusOptions: { id: OrderStatus; label: string; color: 'default' | 'success' | 'warning' | 'danger' | 'info' }[] = [
-  { id: 'pending', label: 'Pending', color: 'warning' },
-  { id: 'confirmed', label: 'Confirmed', color: 'info' },
-  { id: 'processing', label: 'Processing', color: 'info' },
-  { id: 'shipped', label: 'Shipped', color: 'info' },
-  { id: 'delivered', label: 'Delivered', color: 'success' },
-  { id: 'cancelled', label: 'Cancelled', color: 'danger' },
-];
+const statusOptions = ORDER_STATUS_OPTIONS;
 
 export default function OrderDetailModal({
   visible,
@@ -43,7 +37,7 @@ export default function OrderDetailModal({
 
   if (!order) return null;
 
-  const currentStatus = statusOptions.find(s => s.id === order.status);
+  const currentStatus = statusOptions.find(s => s.id === normalizeOrderStatus(order.status));
 
   const handleViewDetails = () => {
     setViewMode('view');
@@ -294,13 +288,13 @@ export default function OrderDetailModal({
                 key={status.id}
                 style={[
                   styles.statusOption,
-                  (selectedStatus || order.status) === status.id && styles.statusOptionActive,
+                  (selectedStatus || normalizeOrderStatus(order.status)) === status.id && styles.statusOptionActive,
                 ]}
                 onPress={() => handleStatusSelect(status.id)}
               >
                 <Text style={[
                   styles.statusOptionText,
-                  (selectedStatus || order.status) === status.id && styles.statusOptionTextActive,
+                  (selectedStatus || normalizeOrderStatus(order.status)) === status.id && styles.statusOptionTextActive,
                 ]}>
                   {status.label}
                 </Text>

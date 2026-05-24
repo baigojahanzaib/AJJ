@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, TouchableOpacity, Modal, Pressable, Animated, D
 import { ChevronRight, ChevronDown, Check, CloudUpload, AlertCircle, RefreshCw } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { Order, OrderStatus } from '@/types';
+import { ORDER_STATUS_CONFIG, ORDER_STATUS_OPTIONS, normalizeOrderStatus } from '@/lib/order-status';
 import Badge from './Badge';
 
 interface OrderCardProps {
@@ -13,16 +14,7 @@ interface OrderCardProps {
   onStatusChange?: (orderId: string, newStatus: OrderStatus) => void;
 }
 
-const statusConfig: Record<OrderStatus, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'default' }> = {
-  pending: { label: 'Pending', variant: 'warning' },
-  confirmed: { label: 'Confirmed', variant: 'info' },
-  processing: { label: 'Processing', variant: 'info' },
-  shipped: { label: 'Shipped', variant: 'info' },
-  delivered: { label: 'Delivered', variant: 'success' },
-  cancelled: { label: 'Cancelled', variant: 'danger' },
-};
-
-const allStatuses: OrderStatus[] = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+const allStatuses = ORDER_STATUS_OPTIONS.map(option => option.id);
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -94,7 +86,8 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
     return `R${safePrice.toFixed(2)}`;
   };
 
-  const status = statusConfig[order.status] ?? statusConfig.pending;
+  const currentStatus = normalizeOrderStatus(order.status);
+  const status = ORDER_STATUS_CONFIG[currentStatus];
   const orderNumber = order.orderNumber || 'Order';
   const customerName = order.customerName || 'Unnamed customer';
   const salesRepName = order.salesRepName || 'Unassigned';
@@ -108,7 +101,7 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
   };
 
   const handleStatusSelect = (newStatus: OrderStatus) => {
-    if (onStatusChange && newStatus !== order.status) {
+    if (onStatusChange && newStatus !== currentStatus) {
       onStatusChange(order.id, newStatus);
     }
     closeDropdown();
@@ -206,8 +199,8 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
 
             <View style={styles.statusGrid}>
               {allStatuses.map((statusKey) => {
-                const config = statusConfig[statusKey];
-                const isSelected = statusKey === order.status;
+                const config = ORDER_STATUS_CONFIG[statusKey];
+                const isSelected = statusKey === currentStatus;
                 return (
                   <TouchableOpacity
                     key={statusKey}

@@ -15,7 +15,7 @@ type SortOption = 'default' | 'price_low' | 'price_high';
 export default function SalesCatalog() {
   const router = useRouter();
   const {
-    activeCategories,
+    activeCatalogCategories,
     filteredSortedProducts,
     searchQuery,
     setSearchQuery,
@@ -101,12 +101,12 @@ export default function SalesCatalog() {
     });
 
     // Add Categories
-    activeCategories.forEach(c => {
+    activeCatalogCategories.forEach(c => {
       items.push({ type: 'category', id: c.id, label: c.name });
     });
 
     return items;
-  }, [filteredSortedProducts, activeCategories]);
+  }, [filteredSortedProducts, activeCatalogCategories]);
 
   const sortOptions: { key: SortOption; label: string }[] = [
     { key: 'default', label: 'Default' },

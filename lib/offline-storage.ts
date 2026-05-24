@@ -22,6 +22,7 @@ const LEGACY_STORAGE_KEYS = {
 
 const STORAGE_KEYS = {
     LAST_SYNC: '@salesapp_last_sync',
+    CATALOG_SYNC_VERSION: '@salesapp_catalog_sync_version',
     CUSTOMER_SYNC_VERSION: '@salesapp_customer_sync_version',
     PRODUCTS: '@salesapp_file_cache_products',
     CATEGORIES: '@salesapp_file_cache_categories',
@@ -156,6 +157,14 @@ export const getLastSyncTimestamp = async (): Promise<string | null> => {
     return await AsyncStorage.getItem(STORAGE_KEYS.LAST_SYNC);
 };
 
+export const setCatalogSyncVersion = async (version: string) => {
+    await AsyncStorage.setItem(STORAGE_KEYS.CATALOG_SYNC_VERSION, version);
+};
+
+export const getCatalogSyncVersion = async (): Promise<string | null> => {
+    return await AsyncStorage.getItem(STORAGE_KEYS.CATALOG_SYNC_VERSION);
+};
+
 export const setCustomerSyncVersion = async (version: string) => {
     await AsyncStorage.setItem(STORAGE_KEYS.CUSTOMER_SYNC_VERSION, version);
 };
@@ -173,6 +182,7 @@ export const clearAllCache = async () => {
 
         await AsyncStorage.multiRemove([
             STORAGE_KEYS.LAST_SYNC,
+            STORAGE_KEYS.CATALOG_SYNC_VERSION,
             STORAGE_KEYS.CUSTOMER_SYNC_VERSION,
             STORAGE_KEYS.PRODUCTS,
             STORAGE_KEYS.CATEGORIES,
