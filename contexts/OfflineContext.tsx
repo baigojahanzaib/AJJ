@@ -7,11 +7,61 @@ import {
     removePendingOrder,
     removePendingOrderUpdate,
 } from '../lib/sync-manager';
-import { setLastSyncTimestamp, getLastSyncTimestamp } from '../lib/offline-storage';
-import { api } from '../convex/_generated/api';
-import { useMutation } from 'convex/react';
-
+import { getCachedOrders, getCachedProducts, saveOrders, setLastSyncTimestamp, getLastSyncTimestamp } from '../lib/offline-storage';
+import { createOrder, updateOrder } from '@/lib/baigo-api';
+import { Order, Product } from '@/types';
 import { useNotification } from './NotificationContext';
+
+function normalizeText(value: string | undefined) {
+    return (value ?? '').trim().toLowerCase();
+}
+
+function variantIdForOrderItem(item: Order['items'][number], products: Product[]): number | null {
+    const product = products.find(entry => entry.id === item.productId);
+    const selectedVariations = item.selectedVariations ?? [];
+    const matchingCombination = product?.combinations?.find(combination => {
+        if (combination.sku && combination.sku === item.productSku) return true;
+        if (selectedVariations.length === 0 && combination.options.length === 0) return true;
+        return combination.options.every(option =>
+            selectedVariations.some(selection =>
+                normalizeText(selection.variationName) === normalizeText(option.name) &&
+                normalizeText(selection.optionName) === normalizeText(option.value)
+            )
+        );
+    }) ?? product?.combinations?.[0];
+
+    const id = Number(matchingCombination?.id ?? item.productId);
+    return Number.isFinite(id) ? id : null;
+}
+
+function compactObject<T extends object>(value: T): Partial<T> {
+    return Object.fromEntries(
+        Object.entries(value).filter(([, entryValue]) => entryValue !== undefined)
+    ) as Partial<T>;
+}
+
+function orderToApiPayload(order: Omit<Order, 'id' | 'createdAt' | 'updatedAt' | 'orderNumber'>, products: Product[]) {
+    const items = order.items
+        .map(item => ({
+            variant_id: variantIdForOrderItem(item, products),
+            quantity: item.quantity,
+        }))
+        .filter(item => item.variant_id !== null && item.quantity > 0);
+
+    return compactObject({
+        customer_id: order.customerId ? Number(order.customerId) : undefined,
+        customer_name: order.customerName,
+        customer_email: order.customerEmail,
+        customer_phone: order.customerPhone,
+        delivery_method: 'delivery',
+        ship_line1: order.customerAddress,
+        ship_gps_lat: order.latitude,
+        ship_gps_lng: order.longitude,
+        payment_method: order.orderSource === 'client_shop' ? 'cod' : 'on_account',
+        notes_customer: order.notes,
+        items,
+    });
+}
 
 export const [OfflineProvider, useOffline] = createContextHook(() => {
     const { isOnline, isFirstLoad } = useNetworkStatus();
@@ -19,10 +69,6 @@ export const [OfflineProvider, useOffline] = createContextHook(() => {
     const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
     const { showToast } = useNotification();
-
-    // Convex mutations for syncing
-    const createOrderMutation = useMutation(api.orders.create);
-    const updateOrderMutation = useMutation(api.orders.update);
 
     const refreshPendingCount = useCallback(async () => {
         const [pendingOrders, pendingUpdates] = await Promise.all([
@@ -43,9 +89,11 @@ export const [OfflineProvider, useOffline] = createContextHook(() => {
 
         try {
             setIsSyncing(true);
-            const [pendingOrders, pendingUpdates] = await Promise.all([
+            const [pendingOrders, pendingUpdates, products, cachedOrders] = await Promise.all([
                 getPendingOrders(),
                 getPendingOrderUpdates(),
+                getCachedProducts(),
+                getCachedOrders(),
             ]);
             console.log(
                 `[OfflineContext] Syncing ${pendingOrders.length} new orders and ${pendingUpdates.length} order edits...`
@@ -54,35 +102,23 @@ export const [OfflineProvider, useOffline] = createContextHook(() => {
             let syncedOrdersCount = 0;
             let syncedUpdatesCount = 0;
             const tempToRealOrderId = new Map<string, string>();
+            const syncedOrders: Order[] = [];
 
             for (const order of pendingOrders) {
                 try {
-                    const createdOrderId = await createOrderMutation({
-                        salesRepId: order.salesRepId,
-                        salesRepName: order.salesRepName,
-                        customerName: order.customerName,
-                        customerPhone: order.customerPhone,
-                        customerEmail: order.customerEmail,
-                        customerAddress: order.customerAddress,
-                        items: order.items,
-                        subtotal: order.subtotal,
-                        tax: order.tax,
-                        discount: order.discount,
-                        total: order.total,
-                        status: order.status,
-                        notes: order.notes,
-                    });
+                    const payload = orderToApiPayload(order, products);
+                    const createdOrder = await createOrder(payload, order.tempId);
 
-                    // Remove from queue after successful sync
                     await removePendingOrder(order.tempId);
-                    tempToRealOrderId.set(order.tempId, String(createdOrderId));
+                    tempToRealOrderId.set(order.tempId, createdOrder.id);
+                    syncedOrders.push(createdOrder);
                     syncedOrdersCount++;
                 } catch (error) {
                     console.error(`[OfflineContext] Failed to sync order ${order.tempId}:`, error);
-                    // Keep in queue to retry later
                 }
             }
 
+            const orderLookup = [...syncedOrders, ...cachedOrders];
             for (const pendingUpdate of pendingUpdates) {
                 const resolvedOrderId = tempToRealOrderId.get(pendingUpdate.orderId) ?? pendingUpdate.orderId;
                 if (resolvedOrderId.startsWith('TEMP-')) {
@@ -92,14 +128,19 @@ export const [OfflineProvider, useOffline] = createContextHook(() => {
                     continue;
                 }
 
+                const order = orderLookup.find(entry =>
+                    entry.id === resolvedOrderId ||
+                    entry.orderNumber === resolvedOrderId ||
+                    entry.id === pendingUpdate.orderId ||
+                    entry.orderNumber === pendingUpdate.orderId
+                );
+                if (!order?.orderNumber) {
+                    console.warn(`[OfflineContext] Skipping queued edit ${pendingUpdate.tempId}; order number not found.`);
+                    continue;
+                }
+
                 try {
-                    await updateOrderMutation({
-                        id: resolvedOrderId as any,
-                        editedBy: pendingUpdate.editedBy,
-                        editedByName: pendingUpdate.editedByName,
-                        changeDescription: pendingUpdate.changeDescription,
-                        ...pendingUpdate.updates,
-                    } as any);
+                    await updateOrder(order.orderNumber, pendingUpdate.updates, pendingUpdate.changeDescription);
                     await removePendingOrderUpdate(pendingUpdate.tempId);
                     syncedUpdatesCount++;
                 } catch (error) {
@@ -107,13 +148,18 @@ export const [OfflineProvider, useOffline] = createContextHook(() => {
                         `[OfflineContext] Failed to sync order edit ${pendingUpdate.tempId}:`,
                         error
                     );
-                    // Keep in queue to retry later
                 }
             }
 
             console.log(
                 `[OfflineContext] Sync complete. Orders: ${syncedOrdersCount}/${pendingOrders.length}, edits: ${syncedUpdatesCount}/${pendingUpdates.length}.`
             );
+
+            if (syncedOrders.length > 0) {
+                const merged = new Map(cachedOrders.map(order => [order.id, order]));
+                syncedOrders.forEach(order => merged.set(order.id, order));
+                await saveOrders(Array.from(merged.values()));
+            }
 
             if (syncedOrdersCount > 0 || syncedUpdatesCount > 0) {
                 const now = new Date().toISOString();
@@ -132,19 +178,16 @@ export const [OfflineProvider, useOffline] = createContextHook(() => {
         } finally {
             setIsSyncing(false);
         }
-    }, [isOnline, isSyncing, createOrderMutation, refreshPendingCount, showToast, updateOrderMutation]);
+    }, [isOnline, isSyncing, refreshPendingCount, showToast]);
 
-    // Load initial state
     useEffect(() => {
         loadSyncState();
     }, [loadSyncState]);
 
-    // Update pending count whenever online status changes or manually triggered
     useEffect(() => {
         refreshPendingCount();
     }, [isOnline, refreshPendingCount]);
 
-    // Auto-sync when coming back online
     useEffect(() => {
         if (isOnline && pendingOrdersCount > 0) {
             console.log('[OfflineContext] Connection restored. Auto-syncing pending orders...');

@@ -4,8 +4,15 @@ import createContextHook from '@nkzw/create-context-hook';
 import { CartItem, Product, SelectedVariation } from '@/types';
 import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useData } from '@/contexts/DataContext';
+import {
+  calculateProductUnitPrice,
+  getSelectionKey,
+  resolveSelectedVariations
+} from '@/lib/product-pricing';
 
 const CART_STORAGE_KEY_PREFIX = '@salesapp_cart_draft';
+const GUEST_CART_STORAGE_KEY = `${CART_STORAGE_KEY_PREFIX}:guest`;
 
 const createEmptyCustomerInfo = () => ({
   name: '',
@@ -27,13 +34,14 @@ type CartDraft = {
 export const [CartProvider, useCart] = createContextHook(() => {
   const { taxSettings } = useRemoteConfig();
   const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const { products } = useData();
   const [items, setItems] = useState<CartItem[]>([]);
   const [customerInfo, setCustomerInfo] = useState(createEmptyCustomerInfo);
   const [notes, setNotes] = useState('');
   const [hasHydratedDraft, setHasHydratedDraft] = useState(false);
   const [hydratedStorageKey, setHydratedStorageKey] = useState<string | null>(null);
 
-  const cartStorageKey = user?.id ? `${CART_STORAGE_KEY_PREFIX}:${user.id}` : null;
+  const cartStorageKey = user?.id ? `${CART_STORAGE_KEY_PREFIX}:${user.id}` : GUEST_CART_STORAGE_KEY;
 
   useEffect(() => {
     let isMounted = true;
@@ -44,32 +52,34 @@ export const [CartProvider, useCart] = createContextHook(() => {
 
       if (isAuthLoading) return;
 
-      if (!isAuthenticated || !cartStorageKey) {
-        setItems([]);
-        setCustomerInfo(createEmptyCustomerInfo());
-        setNotes('');
-        setHasHydratedDraft(true);
-        return;
-      }
-
       try {
         const rawDraft = await AsyncStorage.getItem(cartStorageKey);
+        const guestDraft = isAuthenticated && cartStorageKey !== GUEST_CART_STORAGE_KEY
+          ? await AsyncStorage.getItem(GUEST_CART_STORAGE_KEY)
+          : null;
         if (!isMounted) return;
 
-        if (!rawDraft) {
+        const effectiveDraft = rawDraft || guestDraft;
+
+        if (!effectiveDraft) {
           setItems([]);
           setCustomerInfo(createEmptyCustomerInfo());
           setNotes('');
           return;
         }
 
-        const parsed = JSON.parse(rawDraft) as Partial<CartDraft>;
+        const parsed = JSON.parse(effectiveDraft) as Partial<CartDraft>;
         setItems(Array.isArray(parsed.items) ? parsed.items : []);
         setCustomerInfo({
           ...createEmptyCustomerInfo(),
           ...(parsed.customerInfo ?? {}),
         });
         setNotes(typeof parsed.notes === 'string' ? parsed.notes : '');
+
+        if (!rawDraft && guestDraft && cartStorageKey !== GUEST_CART_STORAGE_KEY) {
+          await AsyncStorage.setItem(cartStorageKey, guestDraft);
+          await AsyncStorage.removeItem(GUEST_CART_STORAGE_KEY);
+        }
       } catch (error) {
         console.error('[Cart] Error loading saved cart draft:', error);
         if (isMounted) {
@@ -93,7 +103,7 @@ export const [CartProvider, useCart] = createContextHook(() => {
   }, [cartStorageKey, isAuthenticated, isAuthLoading]);
 
   useEffect(() => {
-    if (!hasHydratedDraft || !cartStorageKey || hydratedStorageKey !== cartStorageKey) return;
+    if (!hasHydratedDraft || hydratedStorageKey !== cartStorageKey) return;
 
     const hasCustomerInfo = Object.values(customerInfo).some(value => value !== undefined && value !== '');
     const hasDraft = items.length > 0 || hasCustomerInfo || notes.trim().length > 0;
@@ -122,57 +132,69 @@ export const [CartProvider, useCart] = createContextHook(() => {
     persistCartDraft();
   }, [cartStorageKey, customerInfo, hasHydratedDraft, hydratedStorageKey, items, notes]);
 
-  const calculateItemPrice = (product: Product, selectedVariations: SelectedVariation[]): number => {
-    // Check for matching combination first
-    if (product.combinations && product.combinations.length > 0) {
-      const match = product.combinations.find(combo => {
-        // Every option in the combination must match a selected variation
-        return combo.options.every(comboOption => {
-          const comboOptName = comboOption.name.trim().toLowerCase();
-          const comboOptValue = comboOption.value.trim().toLowerCase();
+  useEffect(() => {
+    if (products.length === 0) return;
 
-          const isMatch = selectedVariations.some(selected =>
-            selected.variationName.trim().toLowerCase() === comboOptName &&
-            selected.optionName.trim().toLowerCase() === comboOptValue
-          );
+    const latestProductsById = new Map(products.map(product => [product.id, product]));
 
-          if (!isMatch) {
-            // console.log(`[Cart] No match for combo option: ${comboOptName}=${comboOptValue}`);
-          }
-          return isMatch;
-        });
+    setItems(prev => {
+      let changed = false;
+
+      const nextItems = prev.map(item => {
+        const latestProduct = latestProductsById.get(item.product.id);
+        if (!latestProduct) return item;
+
+        const previousCalculatedPrice = calculateProductUnitPrice(item.product, item.selectedVariations);
+        const hasManualPrice = Math.abs(item.unitPrice - previousCalculatedPrice) > 0.01;
+        const selectedVariations = resolveSelectedVariations(latestProduct, item.selectedVariations);
+        const unitPrice = hasManualPrice
+          ? item.unitPrice
+          : calculateProductUnitPrice(latestProduct, selectedVariations);
+        const totalPrice = unitPrice * item.quantity;
+        const selectionChanged = getSelectionKey(selectedVariations) !== getSelectionKey(item.selectedVariations);
+
+        if (
+          latestProduct === item.product &&
+          !selectionChanged &&
+          Math.abs(unitPrice - item.unitPrice) <= 0.01 &&
+          Math.abs(totalPrice - item.totalPrice) <= 0.01
+        ) {
+          return item;
+        }
+
+        changed = true;
+        return {
+          ...item,
+          product: latestProduct,
+          selectedVariations,
+          unitPrice,
+          totalPrice,
+        };
       });
 
-      if (match) {
-        return match.price;
-      }
-    }
-
-    // Fallback to modifiers
-    let price = product.basePrice;
-    for (const variation of selectedVariations) {
-      price += variation.priceModifier;
-    }
-    return price;
-  };
+      return changed ? nextItems : prev;
+    });
+  }, [products]);
 
   const addItem = useCallback((product: Product, selectedVariations: SelectedVariation[], quantity: number = 1) => {
     console.log('[Cart] Adding item:', product.name, 'quantity:', quantity);
 
     setItems(prev => {
-      const variationKey = selectedVariations.map(v => `${v.variationId}:${v.optionId}`).sort().join('|');
+      const resolvedVariations = resolveSelectedVariations(product, selectedVariations);
+      const variationKey = getSelectionKey(resolvedVariations);
       const existingIndex = prev.findIndex(item =>
         item.product.id === product.id &&
-        item.selectedVariations.map(v => `${v.variationId}:${v.optionId}`).sort().join('|') === variationKey
+        getSelectionKey(item.selectedVariations) === variationKey
       );
 
-      const unitPrice = calculateItemPrice(product, selectedVariations);
+      const unitPrice = calculateProductUnitPrice(product, resolvedVariations);
 
       if (existingIndex >= 0) {
         const updated = [...prev];
         const newQuantity = updated[existingIndex].quantity + quantity;
         updated[existingIndex] = {
           ...updated[existingIndex],
+          unitPrice,
           quantity: newQuantity,
           totalPrice: unitPrice * newQuantity,
         };
@@ -182,7 +204,7 @@ export const [CartProvider, useCart] = createContextHook(() => {
       const newItem: CartItem = {
         id: `cart-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         product,
-        selectedVariations,
+        selectedVariations: resolvedVariations,
         quantity,
         unitPrice,
         totalPrice: unitPrice * quantity,

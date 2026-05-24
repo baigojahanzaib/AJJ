@@ -24,7 +24,7 @@
             },
             "env": {
                 "NPM_CONFIG_LEGACY_PEER_DEPS": "true",
-                "EXPO_PUBLIC_CONVEX_URL": "https://terrific-basilisk-771.convex.cloud"
+                "EXPO_PUBLIC_BAIGO_API_URL": "https://e-order.co.za"
             }
         },
         "production-apk": {

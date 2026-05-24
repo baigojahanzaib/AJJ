@@ -76,8 +76,12 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
       }),
     ]).start(() => setShowStatusDropdown(false));
   };
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+  const formatDate = (dateString: string | undefined) => {
+    const date = dateString ? new Date(dateString) : new Date(NaN);
+    if (!Number.isFinite(date.getTime())) {
+      return 'Unknown date';
+    }
+
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -85,11 +89,16 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
     });
   };
 
-  const formatPrice = (price: number) => {
-    return `R${price.toFixed(2)}`;
+  const formatPrice = (price: number | undefined) => {
+    const safePrice = typeof price === 'number' && Number.isFinite(price) ? price : 0;
+    return `R${safePrice.toFixed(2)}`;
   };
 
-  const status = statusConfig[order.status];
+  const status = statusConfig[order.status] ?? statusConfig.pending;
+  const orderNumber = order.orderNumber || 'Order';
+  const customerName = order.customerName || 'Unnamed customer';
+  const salesRepName = order.salesRepName || 'Unassigned';
+  const items = Array.isArray(order.items) ? order.items : [];
 
   const handleStatusPress = (e: any) => {
     e.stopPropagation();
@@ -105,10 +114,10 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
     closeDropdown();
   };
 
-  const isSynced = !!order?.ecwidOrderId;
+  const isSynced = !!order?.orderNumber && order.orderNumber !== 'PENDING-SYNC';
   const lastSyncedAt = order?.lastSyncedAt ? new Date(order.lastSyncedAt) : null;
   const updatedAt = order?.updatedAt ? new Date(order.updatedAt) : new Date();
-  const isUpToDate = isSynced && lastSyncedAt && lastSyncedAt.getTime() >= updatedAt.getTime() - 1000;
+  const isUpToDate = isSynced && (!lastSyncedAt || lastSyncedAt.getTime() >= updatedAt.getTime() - 1000);
 
   return (
     <TouchableOpacity
@@ -120,7 +129,7 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
       <View style={styles.header}>
         <View>
           <View style={styles.orderNumberRow}>
-            <Text style={styles.orderNumber}>{order.orderNumber}</Text>
+            <Text style={styles.orderNumber}>{orderNumber}</Text>
             {isSynced && isUpToDate && (
               <View style={[styles.syncIcon, { backgroundColor: Colors.light.success + '20' }]}>
                 <Check size={12} color={Colors.light.success} strokeWidth={3} />
@@ -154,12 +163,12 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
       </View>
 
       <View style={styles.body}>
-        <Text style={styles.customerName}>{order.customerName}</Text>
+        <Text style={styles.customerName}>{customerName}</Text>
         {showSalesRep && (
-          <Text style={styles.salesRep}>Rep: {order.salesRepName}</Text>
+          <Text style={styles.salesRep}>Rep: {salesRepName}</Text>
         )}
         <Text style={styles.items}>
-          {order.items.length} item{order.items.length !== 1 ? 's' : ''}
+          {items.length} item{items.length !== 1 ? 's' : ''}
         </Text>
       </View>
 
@@ -193,7 +202,7 @@ export default function OrderCard({ order, onPress, onLongPress, showSalesRep = 
           >
             <View style={styles.dropdownHandle} />
             <Text style={styles.dropdownTitle}>Update Status</Text>
-            <Text style={styles.dropdownSubtitle}>{order.orderNumber}</Text>
+            <Text style={styles.dropdownSubtitle}>{orderNumber}</Text>
 
             <View style={styles.statusGrid}>
               {allStatuses.map((statusKey) => {
@@ -340,7 +349,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   dropdownOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   dropdownContainer: {

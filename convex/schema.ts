@@ -54,12 +54,13 @@ export default defineSchema({
         email: v.string(),
         passwordHash: v.string(),
         name: v.string(),
-        role: v.union(v.literal("admin"), v.literal("sales_rep")),
+        role: v.union(v.literal("admin"), v.literal("sales_rep"), v.literal("client")),
         phone: v.string(),
         avatar: v.optional(v.string()),
         isActive: v.boolean(),
         createdAt: v.string(),
         companyId: v.optional(v.string()),
+        customerId: v.optional(v.id("customers")),
     }).index("by_email", ["email"]),
 
     categories: defineTable({
@@ -135,6 +136,14 @@ export default defineSchema({
         orderNumber: v.string(),
         salesRepId: v.string(),
         salesRepName: v.string(),
+        orderSource: v.optional(v.union(
+            v.literal("client_shop"),
+            v.literal("sales_rep"),
+            v.literal("admin")
+        )),
+        clientUserId: v.optional(v.string()),
+        customerId: v.optional(v.string()),
+        placedByUserId: v.optional(v.string()),
         customerName: v.string(),
         customerPhone: v.string(),
         customerEmail: v.string(),
@@ -164,6 +173,8 @@ export default defineSchema({
         companyId: v.optional(v.string()),
     })
         .index("by_salesRep", ["salesRepId"])
+        .index("by_clientUser", ["clientUserId"])
+        .index("by_orderSource", ["orderSource"])
         .index("by_status", ["status"])
         .index("by_orderNumber", ["orderNumber"])
         .index("by_ecwidOrderId", ["ecwidOrderId"]),

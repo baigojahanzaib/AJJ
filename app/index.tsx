@@ -1,192 +1,35 @@
-import { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, KeyboardAvoidingView, Platform, ScrollView, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Mail, Lock, ShoppingBag } from 'lucide-react-native';
+import { Redirect } from 'expo-router';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import Input from '@/components/Input';
-import Button from '@/components/Button';
 import Colors from '@/constants/colors';
 
-export default function LoginScreen() {
-  const router = useRouter();
-  const { login, isLoading: authLoading, isAuthenticated, user, isViewingAsUser } = useAuth();
+export default function IndexRoute() {
+  const { user, isAuthenticated, isLoading, isViewingAsUser } = useAuth();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-
-  // Handle navigation in useEffect to avoid updating state during render
-  useEffect(() => {
-    if (!authLoading && isAuthenticated && user) {
-      if (user.role === 'admin' && !isViewingAsUser) {
-        router.replace('/(admin)/dashboard');
-      } else {
-        router.replace('/(sales)/catalog');
-      }
-    }
-  }, [authLoading, isAuthenticated, user, isViewingAsUser, router]);
-
-  if (authLoading) {
+  if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ShoppingBag size={48} color={Colors.light.primary} />
-        <Text style={styles.loadingText}>Loading...</Text>
+      <View style={styles.loading}>
+        <ActivityIndicator color={Colors.light.primary} />
       </View>
     );
   }
 
-  // Show loading while redirecting authenticated users
-  if (isAuthenticated && user) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ShoppingBag size={48} color={Colors.light.primary} />
-        <Text style={styles.loadingText}>Redirecting...</Text>
-      </View>
-    );
+  if (isAuthenticated && user?.role === 'admin' && !isViewingAsUser) {
+    return <Redirect href={'/(admin)/dashboard' as any} />;
   }
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      setError('Please enter your email and password');
-      return;
-    }
+  if (isAuthenticated && (user?.role === 'sales_rep' || user?.role === 'admin')) {
+    return <Redirect href={'/(sales)/catalog' as any} />;
+  }
 
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const result = await login(email.trim(), password);
-
-      if (result.success) {
-        console.log('[Login] Success, navigating...');
-      } else {
-        setError(result.error || 'Login failed');
-      }
-    } catch (err) {
-      console.error('[Login] Error:', err);
-      setError('An unexpected error occurred');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.header}>
-            <View style={styles.iconContainer}>
-              <ShoppingBag size={40} color={Colors.light.primary} />
-            </View>
-            <Text style={styles.title}>e-order</Text>
-            <Text style={styles.subtitle}>Sales Platform</Text>
-          </View>
-
-          <View style={styles.form}>
-            <Input
-              label="Email"
-              placeholder="Enter your email"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              leftIcon={<Mail size={20} color={Colors.light.textTertiary} />}
-            />
-
-            <Input
-              label="Password"
-              placeholder="Enter your password"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              leftIcon={<Lock size={20} color={Colors.light.textTertiary} />}
-            />
-
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-
-            <Button
-              title="Sign In"
-              onPress={handleLogin}
-              loading={isLoading}
-              fullWidth
-              size="lg"
-              style={styles.loginButton}
-            />
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
+  return <Redirect href={'/(shop)/catalog' as any} />;
 }
 
 const styles = StyleSheet.create({
-  container: {
+  loading: {
     flex: 1,
-    backgroundColor: Colors.light.background,
-  },
-  loadingContainer: {
-    flex: 1,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: Colors.light.background,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: Colors.light.textSecondary,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 24,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 48,
-  },
-  iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    backgroundColor: Colors.light.surfaceSecondary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: '700' as const,
-    color: Colors.light.text,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: Colors.light.textSecondary,
-  },
-  form: {
-    marginBottom: 32,
-  },
-  error: {
-    color: Colors.light.danger,
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  loginButton: {
-    marginTop: 8,
   },
 });

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform, FlatList, Switch } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Modal, TextInput, Share, Platform, FlatList, Pressable } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Image } from 'expo-image';
@@ -16,8 +16,20 @@ import Badge from '@/components/Badge';
 import MapOptionsModal from '@/components/MapOptionsModal';
 import ThemedAlert from '@/components/ThemedAlert';
 import Input from '@/components/Input';
+import Button from '@/components/Button';
+import UniversalSwitch from '@/components/UniversalSwitch';
 import Colors from '@/constants/colors';
 import { OrderStatus, OrderItem, Product, SelectedVariation } from '@/types';
+import {
+  calculateProductUnitPrice,
+  getDefaultSelectedVariations,
+  getEffectiveMoq,
+  getProductSkuForSelections,
+  getProductVariationPreview,
+  getSelectedVariationsFromOptionIds,
+  getSelectedVariationSummary,
+  getSelectionKey,
+} from '@/lib/product-pricing';
 import { generateAndSharePDF } from '@/lib/pdf-generator';
 import { generateAndShareCSV } from '@/lib/csv-generator';
 
@@ -34,7 +46,7 @@ export default function OrderDetailPage() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { orders, updateOrderStatus, updateOrder, undoOrderEdit, deleteOrder, syncOrderToEcwid, resolveImageUri, activeProducts } = useData();
+  const { orders, updateOrderStatus, updateOrder, undoOrderEdit, deleteOrder, syncOrderToWebsiteAdmin, resolveImageUri, activeProducts } = useData();
   const { user } = useAuth();
   const { taxSettings } = useRemoteConfig();
   const [showStatusPicker, setShowStatusPicker] = useState(false);
@@ -65,21 +77,21 @@ export default function OrderDetailPage() {
   const [showAddItemModal, setShowAddItemModal] = useState(false);
   const [addItemSearch, setAddItemSearch] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [variationPickerProduct, setVariationPickerProduct] = useState<Product | null>(null);
+  const [variationPickerSelections, setVariationPickerSelections] = useState<Record<string, string>>({});
+  const [variationPickerQuantity, setVariationPickerQuantity] = useState(1);
 
   const order = orders.find(o => o.id === id);
   const isAdmin = user?.role === 'admin';
   const canEdit = isAdmin || order?.salesRepId === user?.id;
   const canUndo = !!order?.previousVersion;
 
-  const isSynced = !!order?.ecwidOrderId;
+  const isSynced = !!order?.orderNumber && order.orderNumber !== 'PENDING-SYNC';
   const lastSyncedAtRaw = (order as any)?.lastSyncedAt as string | undefined;
   const lastSyncedAt = lastSyncedAtRaw ? new Date(lastSyncedAtRaw) : null;
   const updatedAt = order?.updatedAt ? new Date(order.updatedAt) : new Date();
 
-  // If never synced, it's not up to date.
-  // If synced, check if sync time is after update time.
-  // We add a small buffer (e.g. 1s) because sometimes update writes happen slightly after sync timestamp generation
-  const isUpToDate = !!(isSynced && lastSyncedAt && lastSyncedAt.getTime() >= updatedAt.getTime() - 1000);
+  const isUpToDate = !!(isSynced && (!lastSyncedAt || lastSyncedAt.getTime() >= updatedAt.getTime() - 1000));
   const effectiveTaxRate = taxSettings.enabled && editTaxEnabled ? taxSettings.rate : 0;
   const taxLabel = useMemo(() => {
     if (!taxSettings.enabled || !editTaxEnabled) return 'Tax (Disabled)';
@@ -135,6 +147,31 @@ export default function OrderDetailPage() {
       })
       .slice(0, 120);
   }, [activeProducts, addItemSearch]);
+
+  const variationPickerSelectedVariations = useMemo(() => (
+    variationPickerProduct
+      ? getSelectedVariationsFromOptionIds(variationPickerProduct, variationPickerSelections)
+      : []
+  ), [variationPickerProduct, variationPickerSelections]);
+
+  const variationPickerMoq = useMemo(() => (
+    variationPickerProduct
+      ? getEffectiveMoq(variationPickerProduct, variationPickerSelectedVariations)
+      : 1
+  ), [variationPickerProduct, variationPickerSelectedVariations]);
+
+  const variationPickerUnitPrice = useMemo(() => (
+    variationPickerProduct
+      ? calculateProductUnitPrice(variationPickerProduct, variationPickerSelectedVariations)
+      : 0
+  ), [variationPickerProduct, variationPickerSelectedVariations]);
+
+  useEffect(() => {
+    if (!variationPickerProduct) return;
+    if (variationPickerQuantity < variationPickerMoq) {
+      setVariationPickerQuantity(variationPickerMoq);
+    }
+  }, [variationPickerMoq, variationPickerProduct, variationPickerQuantity]);
 
   if (!order) {
     return (
@@ -291,71 +328,44 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
   };
 
   const getVariationKey = (selectedVariations: SelectedVariation[]): string => {
-    return selectedVariations
-      .map(v => `${v.variationId}:${v.optionId}`)
-      .sort()
-      .join('|');
+    return getSelectionKey(selectedVariations);
   };
 
   const getDefaultSelections = (product: Product): SelectedVariation[] => {
-    return product.variations
-      .map(variation => {
-        const firstOption = variation.options[0];
-        if (!firstOption) return null;
-
-        return {
-          variationId: variation.id,
-          variationName: variation.name,
-          optionId: firstOption.id,
-          optionName: firstOption.name,
-          priceModifier: firstOption.priceModifier,
-        } as SelectedVariation;
-      })
-      .filter((selection): selection is SelectedVariation => !!selection);
+    return getDefaultSelectedVariations(product);
   };
 
   const getDefaultUnitPrice = (product: Product, selections: SelectedVariation[]): number => {
-    if (product.combinations && product.combinations.length > 0) {
-      const match = product.combinations.find(combo =>
-        combo.options.every(comboOption =>
-          selections.some(selected =>
-            selected.variationName.trim().toLowerCase() === comboOption.name.trim().toLowerCase() &&
-            selected.optionName.trim().toLowerCase() === comboOption.value.trim().toLowerCase()
-          )
-        )
-      );
-
-      if (match) return match.price;
-    }
-
-    return product.basePrice + selections.reduce((sum, selection) => sum + selection.priceModifier, 0);
+    return calculateProductUnitPrice(product, selections);
   };
 
   const formatSelectedVariations = (selectedVariations: SelectedVariation[]): string => {
     if (!selectedVariations.length) return '';
-    return selectedVariations
-      .map(variation => `${variation.variationName}: ${variation.optionName}`)
-      .join(' • ');
+    return getSelectedVariationSummary(selectedVariations);
   };
 
   const getDefaultVariationSummary = (product: Product): string => {
-    if (!product.variations.length) return '';
-
-    const parts = product.variations
-      .map(variation => {
-        const firstOption = variation.options[0];
-        if (!firstOption) return null;
-        return `${variation.name}: ${firstOption.name}`;
-      })
-      .filter((value): value is string => !!value);
-
-    return parts.join(' • ');
+    return getProductVariationPreview(product);
   };
 
-  const addProductToEditItems = (product: Product) => {
-    const selections = getDefaultSelections(product);
+  const addProductToEditItems = (
+    product: Product,
+    selectedVariations = getDefaultSelections(product),
+    quantity = 1
+  ) => {
+    const selectionIds = Object.fromEntries(
+      selectedVariations.map(selection => [selection.variationId, selection.optionId])
+    );
+    const selections = getSelectedVariationsFromOptionIds(product, selectionIds);
     const unitPrice = getDefaultUnitPrice(product, selections);
     const variationKey = getVariationKey(selections);
+    const safeQuantity = Math.max(1, quantity);
+    const existingItem = editItems.find(item =>
+      item.productId === product.id && getVariationKey(item.selectedVariations) === variationKey
+    );
+    const newItemId = `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const touchedItemId = existingItem?.id ?? newItemId;
+    const touchedQuantity = existingItem ? existingItem.quantity + safeQuantity : safeQuantity;
 
     setEditItems(prev => {
       const existingIndex = prev.findIndex(item =>
@@ -363,35 +373,78 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
       );
 
       if (existingIndex >= 0) {
-        const next = [...prev];
-        const existingItem = next[existingIndex];
-        const nextQuantity = existingItem.quantity + 1;
-        next[existingIndex] = {
+        const existingItem = prev[existingIndex];
+        const nextQuantity = existingItem.quantity + safeQuantity;
+        const updatedItem = {
           ...existingItem,
+          productSku: getProductSkuForSelections(product, selections),
+          productImage: product.images[0] || existingItem.productImage,
+          selectedVariations: selections,
           quantity: nextQuantity,
-          totalPrice: existingItem.unitPrice * nextQuantity,
+          unitPrice,
+          totalPrice: unitPrice * nextQuantity,
         };
-        return next;
+        return [updatedItem, ...prev.filter((_, index) => index !== existingIndex)];
       }
 
       const newItem: OrderItem = {
-        id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: newItemId,
         productId: product.id,
         productName: product.name,
-        productSku: product.sku,
+        productSku: getProductSkuForSelections(product, selections),
         productImage: product.images[0] || '',
         selectedVariations: selections,
-        quantity: 1,
+        quantity: safeQuantity,
         unitPrice,
-        totalPrice: unitPrice,
+        totalPrice: unitPrice * safeQuantity,
       };
 
-      return [...prev, newItem];
+      return [newItem, ...prev];
     });
 
+    setEditQuantityDrafts(prev => ({ ...prev, [touchedItemId]: `${touchedQuantity}` }));
+
     setShowAddItemModal(false);
+    setVariationPickerProduct(null);
     setAddItemSearch('');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  };
+
+  const openVariationPicker = (product: Product) => {
+    const selections = getDefaultSelections(product);
+    const selectionMap = Object.fromEntries(
+      selections.map(selection => [selection.variationId, selection.optionId])
+    );
+    const moq = getEffectiveMoq(product, selections);
+
+    setVariationPickerProduct(product);
+    setVariationPickerSelections(selectionMap);
+    setVariationPickerQuantity(moq);
+    Haptics.selectionAsync();
+  };
+
+  const handleAddProductPress = (product: Product) => {
+    if (product.variations.some(variation => variation.options.length > 0)) {
+      openVariationPicker(product);
+      return;
+    }
+
+    addProductToEditItems(product, [], 1);
+  };
+
+  const closeVariationPicker = () => {
+    setVariationPickerProduct(null);
+    setVariationPickerSelections({});
+    setVariationPickerQuantity(1);
+  };
+
+  const confirmVariationPicker = () => {
+    if (!variationPickerProduct) return;
+    addProductToEditItems(
+      variationPickerProduct,
+      variationPickerSelectedVariations,
+      variationPickerQuantity
+    );
   };
 
   const openEditModal = () => {
@@ -412,6 +465,9 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
     setEditingItemPriceValue('');
     setShowAddItemModal(false);
     setAddItemSearch('');
+    setVariationPickerProduct(null);
+    setVariationPickerSelections({});
+    setVariationPickerQuantity(1);
     setShowEditModal(true);
     Haptics.selectionAsync();
   };
@@ -650,7 +706,11 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.modalContent}
+          contentContainerStyle={styles.modalContentContainer}
+          showsVerticalScrollIndicator={false}
+        >
 
           <View style={styles.editSection}>
             <Text style={styles.editSectionTitle}>Customer Information</Text>
@@ -796,7 +856,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
             {taxSettings.enabled && taxSettings.allowPerOrderSelection ? (
               <View style={styles.taxSwitchRow}>
                 <Text style={styles.taxSwitchLabel}>Apply Tax On This Order</Text>
-                <Switch
+                <UniversalSwitch
                   value={editTaxEnabled}
                   onValueChange={setEditTaxEnabled}
                   trackColor={{ false: Colors.light.border, true: Colors.light.primary }}
@@ -882,6 +942,18 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
           <View style={styles.bottomPadding} />
         </ScrollView>
 
+        <View style={[styles.modalFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+          <Button
+            title={isSavingEdit ? 'Updating Order' : 'Update Order'}
+            onPress={handleSaveEdit}
+            loading={isSavingEdit}
+            disabled={isSavingEdit}
+            fullWidth
+            size="lg"
+            icon={<Check size={20} color={Colors.light.primaryForeground} />}
+          />
+        </View>
+
         <Modal
           visible={showAddItemModal}
           animationType="slide"
@@ -916,7 +988,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.addItemRow}
-                  onPress={() => addProductToEditItems(item)}
+                  onPress={() => handleAddProductPress(item)}
                 >
                   <Image
                     source={{ uri: resolveImageUri(item.images[0]) || item.images[0] }}
@@ -932,7 +1004,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
                       </Text>
                     )}
                   </View>
-                  <Text style={styles.addItemPrice}>R{item.basePrice.toFixed(2)}</Text>
+                  <Text style={styles.addItemPrice}>R{getDefaultUnitPrice(item, getDefaultSelections(item)).toFixed(2)}</Text>
                 </TouchableOpacity>
               )}
               ListEmptyComponent={
@@ -942,6 +1014,130 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
               }
             />
           </SafeAreaView>
+        </Modal>
+
+        <Modal
+          visible={!!variationPickerProduct}
+          transparent
+          animationType="fade"
+          onRequestClose={closeVariationPicker}
+        >
+          <Pressable style={styles.variationPickerOverlay} onPress={closeVariationPicker}>
+            <Pressable style={styles.variationPickerCard} onPress={(event) => event.stopPropagation()}>
+              {variationPickerProduct && (
+                <>
+                  <View style={styles.variationPickerHeader}>
+                    <View style={styles.variationPickerTitleWrap}>
+                      <Text style={styles.variationPickerTitle} numberOfLines={2}>
+                        {variationPickerProduct.name}
+                      </Text>
+                      <Text style={styles.variationPickerSku} numberOfLines={1}>
+                        SKU: {getProductSkuForSelections(variationPickerProduct, variationPickerSelectedVariations)}
+                      </Text>
+                    </View>
+                    <TouchableOpacity style={styles.variationPickerClose} onPress={closeVariationPicker}>
+                      <X size={20} color={Colors.light.textTertiary} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <ScrollView style={styles.variationPickerBody} showsVerticalScrollIndicator={false}>
+                    {variationPickerProduct.variations.map(variation => (
+                      <View key={variation.id} style={styles.variationPickerSection}>
+                        <Text style={styles.variationPickerLabel}>{variation.name}</Text>
+                        <View style={styles.variationOptionWrap}>
+                          {variation.options.map(option => {
+                            const active = variationPickerSelections[variation.id] === option.id;
+                            return (
+                              <TouchableOpacity
+                                key={option.id}
+                                style={[
+                                  styles.variationOptionChip,
+                                  active && styles.variationOptionChipActive,
+                                ]}
+                                onPress={() => {
+                                  setVariationPickerSelections(prev => ({
+                                    ...prev,
+                                    [variation.id]: option.id,
+                                  }));
+                                  Haptics.selectionAsync();
+                                }}
+                              >
+                                <Text
+                                  style={[
+                                    styles.variationOptionText,
+                                    active && styles.variationOptionTextActive,
+                                  ]}
+                                >
+                                  {option.name}
+                                </Text>
+                                {option.moq ? (
+                                  <Text
+                                    style={[
+                                      styles.variationOptionMoq,
+                                      active && styles.variationOptionTextActive,
+                                    ]}
+                                  >
+                                    MOQ {option.moq}
+                                  </Text>
+                                ) : null}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    ))}
+
+                    <View style={styles.variationQuantityPanel}>
+                      <View>
+                        <Text style={styles.variationQuantityLabel}>Quantity</Text>
+                        <Text style={styles.variationQuantityHint}>
+                          {variationPickerMoq > 1 ? `Multiple of ${variationPickerMoq}` : 'Each'}
+                        </Text>
+                      </View>
+                      <View style={styles.variationQuantityControls}>
+                        <TouchableOpacity
+                          style={[
+                            styles.variationQuantityButton,
+                            variationPickerQuantity <= variationPickerMoq && styles.variationQuantityButtonDisabled,
+                          ]}
+                          disabled={variationPickerQuantity <= variationPickerMoq}
+                          onPress={() => setVariationPickerQuantity(current => (
+                            Math.max(variationPickerMoq, current - variationPickerMoq)
+                          ))}
+                        >
+                          <Minus size={16} color={Colors.light.text} />
+                        </TouchableOpacity>
+                        <Text style={styles.variationQuantityValue}>{variationPickerQuantity}</Text>
+                        <TouchableOpacity
+                          style={styles.variationQuantityButton}
+                          onPress={() => setVariationPickerQuantity(current => current + variationPickerMoq)}
+                        >
+                          <Plus size={16} color={Colors.light.text} />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    <View style={styles.variationPickerTotalRow}>
+                      <Text style={styles.variationPickerTotalLabel}>Line total</Text>
+                      <Text style={styles.variationPickerTotalValue}>
+                        R{(variationPickerUnitPrice * variationPickerQuantity).toFixed(2)}
+                      </Text>
+                    </View>
+                  </ScrollView>
+
+                  <View style={styles.variationPickerFooter}>
+                    <Button
+                      title="Add To Order"
+                      onPress={confirmVariationPicker}
+                      fullWidth
+                      size="lg"
+                      icon={<Check size={18} color={Colors.light.primaryForeground} />}
+                    />
+                  </View>
+                </>
+              )}
+            </Pressable>
+          </Pressable>
         </Modal>
       </SafeAreaView>
     </Modal>
@@ -971,7 +1167,7 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
           {canEdit && (
             <TouchableOpacity
               style={[styles.headerBtn, isUpToDate && { opacity: 0.3 }]}
-              onPress={() => !isUpToDate && syncOrderToEcwid(order.id)}
+              onPress={() => !isUpToDate && syncOrderToWebsiteAdmin(order.id)}
               disabled={!!isUpToDate}
             >
               <CloudUpload size={20} color={isSynced ? (isUpToDate ? Colors.light.success : Colors.light.warning) : Colors.light.primary} />
@@ -1197,14 +1393,14 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
               </View>
             )}
 
-            {/* Sync Logic for Body Buttons */}
+            {/* Website API sync state */}
             {isSynced ? (
               <TouchableOpacity
                 style={[
                   styles.syncButton,
                   { marginTop: 12, opacity: isUpToDate ? 0.6 : 1 }
                 ]}
-                onPress={() => !isUpToDate && syncOrderToEcwid(order.id)}
+                onPress={() => !isUpToDate && syncOrderToWebsiteAdmin(order.id)}
                 disabled={isUpToDate}
               >
                 {isUpToDate ? (
@@ -1213,16 +1409,16 @@ ${order.discount > 0 ? `Discount: -R${order.discount.toFixed(2)}\n` : ''}Total: 
                   <RefreshCw size={16} color={Colors.light.primary} />
                 )}
                 <Text style={[styles.syncButtonText, isUpToDate && { color: Colors.light.success }]}>
-                  {isUpToDate ? "Synced with Ecwid" : "Push Changes to Ecwid"}
+                  {isUpToDate ? "Synced with Website Admin" : "Push Changes to Website Admin"}
                 </Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
                 style={[styles.syncButton, { marginTop: 12, backgroundColor: Colors.light.primary }]}
-                onPress={() => syncOrderToEcwid(order.id)}
+                onPress={() => syncOrderToWebsiteAdmin(order.id)}
               >
                 <CloudUpload size={16} color="#fff" />
-                <Text style={[styles.syncButtonText, { color: '#fff' }]}>Push to Ecwid</Text>
+                <Text style={[styles.syncButtonText, { color: '#fff' }]}>Push to Website Admin</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1634,6 +1830,16 @@ const styles = StyleSheet.create({
   modalContent: {
     flex: 1,
   },
+  modalContentContainer: {
+    paddingBottom: 12,
+  },
+  modalFooter: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    backgroundColor: Colors.light.surface,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.borderLight,
+  },
   editSection: {
     paddingHorizontal: 20,
     paddingTop: 24,
@@ -1949,5 +2155,156 @@ const styles = StyleSheet.create({
   addItemEmptyText: {
     fontSize: 14,
     color: Colors.light.textTertiary,
+  },
+  variationPickerOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(23, 23, 23, 0.48)',
+  },
+  variationPickerCard: {
+    maxHeight: '86%',
+    borderRadius: 18,
+    backgroundColor: Colors.light.surface,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    overflow: 'hidden',
+  },
+  variationPickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    padding: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.borderLight,
+  },
+  variationPickerTitleWrap: {
+    flex: 1,
+  },
+  variationPickerTitle: {
+    fontSize: 18,
+    fontWeight: '700' as const,
+    color: Colors.light.text,
+  },
+  variationPickerSku: {
+    fontSize: 12,
+    color: Colors.light.textTertiary,
+    marginTop: 4,
+  },
+  variationPickerClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.light.surfaceSecondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  variationPickerBody: {
+    padding: 18,
+  },
+  variationPickerSection: {
+    marginBottom: 18,
+  },
+  variationPickerLabel: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.light.text,
+    marginBottom: 10,
+  },
+  variationOptionWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  variationOptionChip: {
+    minHeight: 42,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: Colors.light.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
+    justifyContent: 'center',
+  },
+  variationOptionChipActive: {
+    backgroundColor: Colors.light.primary,
+    borderColor: Colors.light.primary,
+  },
+  variationOptionText: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: Colors.light.text,
+  },
+  variationOptionTextActive: {
+    color: Colors.light.primaryForeground,
+  },
+  variationOptionMoq: {
+    fontSize: 11,
+    color: Colors.light.textTertiary,
+    marginTop: 2,
+  },
+  variationQuantityPanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 16,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: Colors.light.surfaceSecondary,
+  },
+  variationQuantityLabel: {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    color: Colors.light.text,
+  },
+  variationQuantityHint: {
+    fontSize: 12,
+    color: Colors.light.textTertiary,
+    marginTop: 2,
+  },
+  variationQuantityControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  variationQuantityButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    backgroundColor: Colors.light.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  variationQuantityButtonDisabled: {
+    opacity: 0.45,
+  },
+  variationQuantityValue: {
+    minWidth: 34,
+    textAlign: 'center',
+    fontSize: 17,
+    fontWeight: '700' as const,
+    color: Colors.light.text,
+  },
+  variationPickerTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
+  variationPickerTotalLabel: {
+    fontSize: 14,
+    color: Colors.light.textSecondary,
+  },
+  variationPickerTotalValue: {
+    fontSize: 20,
+    fontWeight: '700' as const,
+    color: Colors.light.text,
+  },
+  variationPickerFooter: {
+    padding: 18,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.borderLight,
+    backgroundColor: Colors.light.surface,
   },
 });

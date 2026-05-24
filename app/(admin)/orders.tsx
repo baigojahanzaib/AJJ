@@ -510,7 +510,7 @@ const styles = StyleSheet.create({
     color: Colors.light.textTertiary,
   },
   selectionOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'center',
     alignItems: 'flex-end',
     paddingRight: 14,

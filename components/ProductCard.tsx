@@ -6,6 +6,7 @@ import Badge from './Badge';
 
 import { useCart } from '@/contexts/CartContext';
 import { useData } from '@/contexts/DataContext';
+import { getProductPriceRange } from '@/lib/product-pricing';
 
 interface ProductCardProps {
   product: Product;
@@ -34,34 +35,7 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
   };
 
 
-  const getPriceRange = () => {
-    if (product.combinations && product.combinations.length > 0) {
-      const prices = product.combinations.map(c => c.price).filter(p => p > 0);
-      if (prices.length > 0) {
-        const min = Math.min(...prices);
-        const max = Math.max(...prices);
-        return { min, max, hasRange: max > min };
-      }
-    }
-
-    let min = product.basePrice;
-    let max = product.basePrice;
-
-    if (product.variations.length > 0) {
-      // Basic modifier calculation for min/max
-      product.variations.forEach(v => {
-        const modifiers = v.options.map(o => o.priceModifier);
-        const minMod = Math.min(...modifiers);
-        const maxMod = Math.max(...modifiers);
-        min += minMod;
-        max += maxMod;
-      });
-    }
-
-    return { min, max, hasRange: max > min };
-  };
-
-  const { min, hasRange } = getPriceRange();
+  const { min, hasRange } = getProductPriceRange(product);
   const productImageUri = resolveImageUri(product.images[0]) || product.images[0];
 
   if (variant === 'list') {
@@ -83,7 +57,7 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
           <View style={styles.skuPriceRow}>
             <Text style={styles.sku}>{product.sku}</Text>
             <Text style={styles.price}>
-              {hasRange ? `From ${formatPrice(min)}` : formatPrice(product.basePrice)}
+              {hasRange ? `From ${formatPrice(min)}` : formatPrice(min)}
             </Text>
           </View>
           <View style={styles.listFooter}>
@@ -147,7 +121,7 @@ export default function ProductCard({ product, onPress, variant = 'grid' }: Prod
         <Text style={styles.sku}>{product.sku}</Text>
         <View style={styles.priceRow}>
           <Text style={styles.price}>
-            {hasRange ? `From ${formatPrice(min)}` : formatPrice(product.basePrice)}
+            {hasRange ? `From ${formatPrice(min)}` : formatPrice(min)}
           </Text>
           {product.compareAtPrice && product.compareAtPrice > product.basePrice && !hasRange && (
             <Text style={styles.oldPrice}>{formatPrice(product.compareAtPrice)}</Text>

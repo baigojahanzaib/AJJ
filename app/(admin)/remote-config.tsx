@@ -5,7 +5,6 @@ import {
     ScrollView,
     StyleSheet,
     TouchableOpacity,
-    Switch,
     TextInput,
     Alert,
     ActivityIndicator,
@@ -14,10 +13,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ChevronLeft, Settings, Bell, Shield, Megaphone, RefreshCw } from 'lucide-react-native';
 import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
 import Colors from '@/constants/colors';
 import Card from '@/components/Card';
+import UniversalSwitch from '@/components/UniversalSwitch';
 
 export default function RemoteConfigScreen() {
     const router = useRouter();
@@ -30,10 +28,9 @@ export default function RemoteConfigScreen() {
         setFeatureFlag,
         setMaintenanceMode,
         setAnnouncement,
+        setUpdateSettings,
+        reloadConfig,
     } = useRemoteConfig();
-
-    const setConfigMutation = useMutation(api.appConfig.setConfig);
-    const seedDefaultsMutation = useMutation(api.appConfig.seedDefaultConfigs);
 
     const [maintenanceMessage, setMaintenanceMessage] = useState(maintenanceStatus.message);
     const [announcementTitle, setAnnouncementTitle] = useState(announcement?.title || '');
@@ -95,13 +92,7 @@ export default function RemoteConfigScreen() {
 
     const handleToggleForceUpdate = async (enabled: boolean) => {
         try {
-            await setConfigMutation({
-                key: 'update_settings',
-                value: {
-                    ...updateSettings,
-                    forceUpdate: enabled,
-                },
-            });
+            await setUpdateSettings({ forceUpdate: enabled });
         } catch (error) {
             Alert.alert('Error', 'Failed to update force update setting');
         }
@@ -110,13 +101,7 @@ export default function RemoteConfigScreen() {
     const handleSaveUpdateMessage = async () => {
         try {
             setIsSaving(true);
-            await setConfigMutation({
-                key: 'update_settings',
-                value: {
-                    ...updateSettings,
-                    updateMessage: updateMessage,
-                },
-            });
+            await setUpdateSettings({ updateMessage });
             Alert.alert('Success', 'Update message saved');
         } catch (error) {
             Alert.alert('Error', 'Failed to save update message');
@@ -127,18 +112,18 @@ export default function RemoteConfigScreen() {
 
     const handleSeedDefaults = async () => {
         Alert.alert(
-            'Seed Default Configs',
-            'This will create default configuration values. Existing values will not be overwritten.',
+            'Reload Website Config',
+            'Configuration defaults now come from the website API. Reload the current values from the website?',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
-                    text: 'Seed',
+                    text: 'Reload',
                     onPress: async () => {
                         try {
-                            await seedDefaultsMutation({});
-                            Alert.alert('Success', 'Default configs seeded');
+                            await reloadConfig();
+                            Alert.alert('Success', 'Website config reloaded');
                         } catch (error) {
-                            Alert.alert('Error', 'Failed to seed defaults');
+                            Alert.alert('Error', 'Failed to reload website config');
                         }
                     },
                 },
@@ -183,7 +168,7 @@ export default function RemoteConfigScreen() {
                                 <Text style={styles.toggleLabel}>
                                     {flag.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
                                 </Text>
-                                <Switch
+                                <UniversalSwitch
                                     value={enabled}
                                     onValueChange={(value) => handleToggleFeature(flag, value)}
                                     trackColor={{ false: Colors.light.border, true: Colors.light.primary }}
@@ -203,7 +188,7 @@ export default function RemoteConfigScreen() {
                     <Card>
                         <View style={styles.toggleRow}>
                             <Text style={styles.toggleLabel}>Enable Maintenance</Text>
-                            <Switch
+                            <UniversalSwitch
                                 value={maintenanceStatus.enabled}
                                 onValueChange={handleToggleMaintenance}
                                 trackColor={{ false: Colors.light.border, true: Colors.light.danger }}
@@ -241,7 +226,7 @@ export default function RemoteConfigScreen() {
                     <Card>
                         <View style={styles.toggleRow}>
                             <Text style={styles.toggleLabel}>Show Announcement</Text>
-                            <Switch
+                            <UniversalSwitch
                                 value={announcement?.enabled || false}
                                 onValueChange={handleToggleAnnouncement}
                                 trackColor={{ false: Colors.light.border, true: Colors.light.success }}
@@ -292,7 +277,7 @@ export default function RemoteConfigScreen() {
                                     Users must update to continue
                                 </Text>
                             </View>
-                            <Switch
+                            <UniversalSwitch
                                 value={updateSettings.forceUpdate}
                                 onValueChange={handleToggleForceUpdate}
                                 trackColor={{ false: Colors.light.border, true: Colors.light.warning }}

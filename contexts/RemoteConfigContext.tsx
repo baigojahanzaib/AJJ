@@ -1,9 +1,7 @@
-import React, { createContext, useContext, ReactNode } from 'react';
-import { useQuery, useMutation } from 'convex/react';
-import { api } from '../convex/_generated/api';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
+import { fetchAppConfig, updateAppConfig } from '@/lib/baigo-api';
 import { useAuth } from './AuthContext';
 
-// Types for remote configuration
 export interface FeatureFlags {
     enableOfflineMode: boolean;
     enableNotifications: boolean;
@@ -39,31 +37,20 @@ export interface AppAnnouncement {
 }
 
 interface RemoteConfigContextType {
-    // Feature flags
     featureFlags: FeatureFlags;
     isFeatureEnabled: (feature: string) => boolean;
-
-    // Maintenance mode
     maintenanceStatus: MaintenanceStatus;
     isInMaintenance: boolean;
-
-    // Update settings
     updateSettings: UpdateSettings;
-
-    // Tax settings
     taxSettings: TaxSettings;
-
-    // Announcements
     announcement: AppAnnouncement | null;
-
-    // Loading state
     isLoading: boolean;
-
-    // Admin functions
     setFeatureFlag: (flag: string, enabled: boolean) => Promise<void>;
     setMaintenanceMode: (enabled: boolean, message?: string) => Promise<void>;
     setAnnouncement: (announcement: Partial<AppAnnouncement>) => Promise<void>;
     setTaxSettings: (settings: Partial<TaxSettings>) => Promise<void>;
+    setUpdateSettings: (settings: Partial<UpdateSettings>) => Promise<void>;
+    reloadConfig: () => Promise<void>;
 }
 
 const defaultFeatureFlags: FeatureFlags = {
@@ -98,113 +85,148 @@ interface RemoteConfigProviderProps {
     userId?: string;
 }
 
-export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderProps) {
-    // Query remote configs from Convex
-    const featureFlagsData = useQuery(api.appConfig.getFeatureFlags);
-    const maintenanceData = useQuery(api.appConfig.getMaintenanceStatus);
-    const updateSettingsData = useQuery(api.appConfig.getUpdateSettings);
-    const taxSettingsData = useQuery(api.appConfig.getConfig, { key: 'tax_settings' });
-    const announcementData = useQuery(api.appConfig.getConfig, { key: 'app_announcement' });
+function normalizeMaintenance(value: unknown): MaintenanceStatus {
+    if (typeof value === 'boolean') {
+        return { ...defaultMaintenanceStatus, enabled: value };
+    }
+    if (!value || typeof value !== 'object') return defaultMaintenanceStatus;
+    const raw = value as Record<string, unknown>;
+    return {
+        enabled: Boolean(raw.enabled),
+        message: String(raw.message ?? ''),
+        allowedUserIds: Array.isArray(raw.allowedUserIds)
+            ? raw.allowedUserIds.map(String)
+            : Array.isArray(raw.allowed_user_ids)
+                ? raw.allowed_user_ids.map(String)
+                : [],
+    };
+}
 
-    // Get auth state to check for admin role.
-    // Keep this defensive so a provider-order mistake doesn't crash startup.
+function normalizeAnnouncement(value: unknown): AppAnnouncement | null {
+    if (!value || typeof value !== 'object') return null;
+    const raw = value as Record<string, unknown>;
+    if (!raw.enabled) return null;
+    const type = raw.type === 'warning' || raw.type === 'success' ? raw.type : 'info';
+    return {
+        enabled: true,
+        title: String(raw.title ?? ''),
+        message: String(raw.message ?? ''),
+        type,
+        dismissible: raw.dismissible !== false,
+    };
+}
+
+function normalizeTaxSettings(value: unknown): TaxSettings {
+    if (!value || typeof value !== 'object') return defaultTaxSettings;
+    const raw = value as Record<string, unknown>;
+    const displayMode = String(raw.display_mode ?? raw.displayMode ?? 'inclusive');
+    const percentRate = Number(raw.rate ?? 15);
+    return {
+        enabled: displayMode === 'exclusive',
+        rate: Number.isFinite(percentRate) ? percentRate / 100 : defaultTaxSettings.rate,
+        allowPerOrderSelection: true,
+    };
+}
+
+export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderProps) {
     const auth = useAuth();
     const user = auth?.user;
+    const [featureFlags, setFeatureFlags] = useState<FeatureFlags>(defaultFeatureFlags);
+    const [maintenanceStatus, setMaintenanceStatus] = useState<MaintenanceStatus>(defaultMaintenanceStatus);
+    const [updateSettings, setUpdateSettingsState] = useState<UpdateSettings>(defaultUpdateSettings);
+    const [taxSettings, setTaxSettingsState] = useState<TaxSettings>(defaultTaxSettings);
+    const [announcement, setAnnouncementState] = useState<AppAnnouncement | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
 
-    // Mutations
-    const setConfigMutation = useMutation(api.appConfig.setConfig);
+    const applyConfig = useCallback((data: any) => {
+        setFeatureFlags({ ...defaultFeatureFlags, ...(data?.features ?? {}) });
+        setMaintenanceStatus(normalizeMaintenance(data?.maintenance_detail ?? data?.maintenance));
+        setAnnouncementState(normalizeAnnouncement(data?.announcement));
+        setTaxSettingsState(normalizeTaxSettings(data?.vat));
+        setUpdateSettingsState({
+            forceUpdate: Boolean(data?.force_update ?? data?.forceUpdate),
+            minVersion: String(data?.min_supported_version ?? data?.minVersion ?? defaultUpdateSettings.minVersion),
+            updateMessage: String(data?.update_message ?? data?.updateMessage ?? defaultUpdateSettings.updateMessage),
+        });
+    }, []);
 
-    // Parse feature flags
-    const featureFlags: FeatureFlags = {
-        ...defaultFeatureFlags,
-        ...(featureFlagsData || {}),
-    };
+    const reloadConfig = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const data = await fetchAppConfig();
+            applyConfig(data);
+        } catch (error) {
+            console.warn('[RemoteConfig] Falling back to local defaults:', error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [applyConfig]);
 
-    // Parse maintenance status
-    const maintenanceStatus: MaintenanceStatus = {
-        ...defaultMaintenanceStatus,
-        ...(maintenanceData || {}),
-    };
+    useEffect(() => {
+        reloadConfig();
+    }, [reloadConfig, user?.id]);
 
-    // Check if user is allowed during maintenance
     const isUserAllowed = userId && maintenanceStatus.allowedUserIds?.includes(userId);
     const isAdmin = user?.role === 'admin';
     const isInMaintenance = maintenanceStatus.enabled && !isUserAllowed && !isAdmin;
 
-    // Parse update settings
-    const updateSettings: UpdateSettings = {
-        ...defaultUpdateSettings,
-        ...(updateSettingsData || {}),
-    };
-
-    // Parse tax settings
-    const taxSettings: TaxSettings = {
-        ...defaultTaxSettings,
-        ...(taxSettingsData || {}),
-    };
-
-    // Parse announcement
-    const announcement: AppAnnouncement | null = announcementData?.enabled
-        ? announcementData as AppAnnouncement
-        : null;
-
-    // Loading state
-    const isLoading = featureFlagsData === undefined ||
-        maintenanceData === undefined ||
-        updateSettingsData === undefined ||
-        taxSettingsData === undefined;
-
-    // Helper functions
-    const isFeatureEnabled = (feature: string): boolean => {
+    const isFeatureEnabled = useCallback((feature: string): boolean => {
         return featureFlags[feature] ?? true;
-    };
+    }, [featureFlags]);
 
-    // Admin mutation functions
-    const setFeatureFlag = async (flag: string, enabled: boolean) => {
-        const newFlags = { ...featureFlags, [flag]: enabled };
-        await setConfigMutation({
-            key: 'feature_flags',
-            value: newFlags,
-            updatedBy: userId,
-        });
-    };
+    const setFeatureFlag = useCallback(async (flag: string, enabled: boolean) => {
+        const next = { ...featureFlags, [flag]: enabled };
+        setFeatureFlags(next);
+        const data = await updateAppConfig({ features: { [flag]: enabled } });
+        applyConfig(data);
+    }, [applyConfig, featureFlags]);
 
-    const setMaintenanceMode = async (enabled: boolean, message?: string) => {
-        await setConfigMutation({
-            key: 'maintenance_mode',
-            value: {
-                ...maintenanceStatus,
-                enabled,
-                message: message ?? maintenanceStatus.message,
-            },
-            updatedBy: userId,
-        });
-    };
+    const setMaintenanceMode = useCallback(async (enabled: boolean, message?: string) => {
+        const next = {
+            ...maintenanceStatus,
+            enabled,
+            message: message ?? maintenanceStatus.message,
+        };
+        setMaintenanceStatus(next);
+        const data = await updateAppConfig({ maintenance: next });
+        applyConfig(data);
+    }, [applyConfig, maintenanceStatus]);
 
-    const setAnnouncement = async (newAnnouncement: Partial<AppAnnouncement>) => {
-        const current = announcementData || {
+    const setAnnouncement = useCallback(async (newAnnouncement: Partial<AppAnnouncement>) => {
+        const next = {
             enabled: false,
             title: '',
             message: '',
-            type: 'info',
+            type: 'info' as const,
             dismissible: true,
+            ...(announcement ?? {}),
+            ...newAnnouncement,
         };
-        await setConfigMutation({
-            key: 'app_announcement',
-            value: { ...current, ...newAnnouncement },
-            updatedBy: userId,
-        });
-    };
+        setAnnouncementState(next.enabled ? next : null);
+        const data = await updateAppConfig({ announcement: next });
+        applyConfig(data);
+    }, [announcement, applyConfig]);
 
-    const setTaxSettings = async (newSettings: Partial<TaxSettings>) => {
-        await setConfigMutation({
-            key: 'tax_settings',
-            value: { ...taxSettings, ...newSettings },
-            updatedBy: userId,
+    const setTaxSettings = useCallback(async (settingsPatch: Partial<TaxSettings>) => {
+        const next = { ...taxSettings, ...settingsPatch };
+        setTaxSettingsState(next);
+        const data = await updateAppConfig({
+            vat: {
+                display_mode: next.enabled ? 'exclusive' : 'inclusive',
+                rate: (next.rate * 100).toFixed(2),
+            },
         });
-    };
+        applyConfig(data);
+    }, [applyConfig, taxSettings]);
 
-    const value: RemoteConfigContextType = {
+    const setUpdateSettings = useCallback(async (settingsPatch: Partial<UpdateSettings>) => {
+        const next = { ...updateSettings, ...settingsPatch };
+        setUpdateSettingsState(next);
+        const data = await updateAppConfig({ update_settings: next });
+        applyConfig(data);
+    }, [applyConfig, updateSettings]);
+
+    const value: RemoteConfigContextType = useMemo(() => ({
         featureFlags,
         isFeatureEnabled,
         maintenanceStatus,
@@ -217,7 +239,24 @@ export function RemoteConfigProvider({ children, userId }: RemoteConfigProviderP
         setMaintenanceMode,
         setAnnouncement,
         setTaxSettings,
-    };
+        setUpdateSettings,
+        reloadConfig,
+    }), [
+        announcement,
+        featureFlags,
+        isFeatureEnabled,
+        isInMaintenance,
+        isLoading,
+        maintenanceStatus,
+        reloadConfig,
+        setAnnouncement,
+        setFeatureFlag,
+        setMaintenanceMode,
+        setTaxSettings,
+        setUpdateSettings,
+        taxSettings,
+        updateSettings,
+    ]);
 
     return (
         <RemoteConfigContext.Provider value={value}>
@@ -234,7 +273,6 @@ export function useRemoteConfig() {
     return context;
 }
 
-// Convenience hooks
 export function useFeatureFlag(flag: string): boolean {
     const { isFeatureEnabled } = useRemoteConfig();
     return isFeatureEnabled(flag);

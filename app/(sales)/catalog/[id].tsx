@@ -14,6 +14,12 @@ import Badge from '@/components/Badge';
 import FullScreenImageModal from '@/components/FullScreenImageModal';
 import Colors from '@/constants/colors';
 import { SelectedVariation, ProductVariation } from '@/types';
+import {
+    calculateProductUnitPrice,
+    getEffectiveMoq,
+    getProductPriceRange,
+    getSelectedVariationsFromOptionIds
+} from '@/lib/product-pricing';
 
 export default function ProductDetailPage() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -59,18 +65,7 @@ export default function ProductDetailPage() {
 
     const effectiveMoq = useMemo(() => {
         if (!product) return 1;
-        let moq = product.moq || 1;
-
-        // Check selected variations for specific MOQs
-        product.variations.forEach(variation => {
-            const selectedOptionId = selectedVariations[variation.id];
-            const option = variation.options.find(opt => opt.id === selectedOptionId);
-            if (option && option.moq && option.moq > moq) {
-                moq = option.moq;
-            }
-        });
-
-        return moq;
+        return getEffectiveMoq(product, getSelectedVariationsFromOptionIds(product, selectedVariations));
     }, [product, selectedVariations]);
 
     // Reset quantity when MOQ changes (e.g. variation change)
@@ -78,48 +73,11 @@ export default function ProductDetailPage() {
         if (quantity < effectiveMoq) {
             setQuantity(effectiveMoq);
         }
-    }, [effectiveMoq]);
+    }, [effectiveMoq, quantity]);
 
     const getPriceForSelections = (selections: Record<string, string>): number => {
         if (!product) return 0;
-
-        // 1. Check for Combinations
-        if (product.combinations && product.combinations.length > 0) {
-            // console.log('[ProductDetail] Checking combinations:', product.combinations.length);
-            const matchingComb = product.combinations.find(c => {
-                const isMatch = c.options.every(opt => {
-                    const optName = opt.name.trim().toLowerCase();
-                    const optValue = opt.value.trim().toLowerCase();
-
-                    const variation = product.variations.find(v => v.name.trim().toLowerCase() === optName);
-                    if (!variation) return false;
-
-                    const selectedOpId = selections[variation.id];
-                    const selectedOp = variation.options.find(o => o.id === selectedOpId);
-
-                    return selectedOp?.name.trim().toLowerCase() === optValue;
-                });
-                return isMatch;
-            });
-
-            if (matchingComb) {
-                // console.log(`[ProductDetail] Matched combination for ${product.name}: R${matchingComb.price}`);
-                return matchingComb.price;
-            } else if (product.combinations && product.combinations.length > 0) {
-                // console.log(`[ProductDetail] No combination match for ${product.name} with selections:`, selections);
-            }
-        }
-
-        // 2. Fallback to modifiers
-        let price = product.basePrice;
-        product.variations.forEach(variation => {
-            const selectedOptionId = selections[variation.id];
-            const option = variation.options.find(opt => opt.id === selectedOptionId);
-            if (option) {
-                price += option.priceModifier;
-            }
-        });
-        return price;
+        return calculateProductUnitPrice(product, getSelectedVariationsFromOptionIds(product, selections));
     };
 
     const calculatePrice = (): number => {
@@ -128,17 +86,7 @@ export default function ProductDetailPage() {
 
     const handleAddToCart = () => {
         if (!product) return;
-        const variationsArray: SelectedVariation[] = product.variations.map(variation => {
-            const selectedOptionId = selectedVariations[variation.id];
-            const option = variation.options.find(opt => opt.id === selectedOptionId);
-            return {
-                variationId: variation.id,
-                variationName: variation.name,
-                optionId: option?.id || '',
-                optionName: option?.name || '',
-                priceModifier: option?.priceModifier || 0,
-            };
-        });
+        const variationsArray: SelectedVariation[] = getSelectedVariationsFromOptionIds(product, selectedVariations);
         addItem(product, variationsArray, quantity);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
@@ -201,14 +149,16 @@ export default function ProductDetailPage() {
                                     Haptics.selectionAsync();
                                 }}
                             >
-                                <Text
-                                    style={[
-                                        styles.optionText,
-                                        selectedOptionId === option.id && styles.optionTextSelected,
-                                    ]}
-                                >
-                                    {option.name}
-                                </Text>
+                                <View>
+                                    <Text
+                                        style={[
+                                            styles.optionText,
+                                            selectedOptionId === option.id && styles.optionTextSelected,
+                                        ]}
+                                    >
+                                        {option.name}
+                                    </Text>
+                                </View>
                                 {quantityInCart > 0 && (
                                     <View style={styles.optionBadge}>
                                         <Text style={styles.optionBadgeText}>{quantityInCart}</Text>
@@ -400,30 +350,7 @@ export default function ProductDetailPage() {
                                             R{calculatePrice().toFixed(2)}
                                         </Text>
                                         {(() => {
-                                            const range = (() => {
-                                                if (product.combinations && product.combinations.length > 0) {
-                                                    const prices = product.combinations.map(c => c.price).filter(p => p > 0);
-                                                    if (prices.length > 0) {
-                                                        const min = Math.min(...prices);
-                                                        const max = Math.max(...prices);
-                                                        return { min, max, hasRange: max > min };
-                                                    }
-                                                }
-
-                                                let min = product.basePrice;
-                                                let max = product.basePrice;
-
-                                                if (product.variations.length > 0) {
-                                                    product.variations.forEach(v => {
-                                                        const modifiers = v.options.map(o => o.priceModifier);
-                                                        const minMod = Math.min(...modifiers);
-                                                        const maxMod = Math.max(...modifiers);
-                                                        min += minMod;
-                                                        max += maxMod;
-                                                    });
-                                                }
-                                                return { min, max, hasRange: max > min };
-                                            })();
+                                            const range = getProductPriceRange(product);
 
                                             if (range.hasRange) {
                                                 return (
@@ -450,9 +377,8 @@ export default function ProductDetailPage() {
                                 </Text>
                             </View>
 
-                            <Text style={styles.productDescription}>{product.description}</Text>
-
                             {product.variations.map(renderVariationSelector)}
+                            <Text style={styles.productDescription}>{product.description}</Text>
                         </View>
                     </ScrollView>
 
@@ -676,6 +602,12 @@ const styles = StyleSheet.create({
     },
     optionTextSelected: {
         color: Colors.light.primaryForeground,
+    },
+    optionPriceText: {
+        fontSize: 12,
+        fontWeight: '600' as const,
+        color: Colors.light.textTertiary,
+        marginTop: 2,
     },
     checkIcon: {
         marginLeft: 6,

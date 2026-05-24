@@ -1,30 +1,30 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, Animated, TouchableOpacity } from 'react-native';
 import * as Updates from 'expo-updates';
 import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
-import Constants from 'expo-constants';
+import { getCurrentAppVersion } from '@/lib/app-version';
 import Colors from '@/constants/colors';
 
 interface UpdateHandlerProps {
     children: React.ReactNode;
 }
 
-const { width } = Dimensions.get('window');
-
 export function UpdateHandler({ children }: UpdateHandlerProps) {
     const [updateState, setUpdateState] = useState<'checking' | 'downloading' | 'ready' | 'done' | 'error'>('checking');
     const [statusText, setStatusText] = useState('Checking for updates...');
     const [error, setError] = useState<string | null>(null);
     const [progressPercent, setProgressPercent] = useState(0); // Track progress as number for display
+    const { isUpdatePending } = Updates.useUpdates();
 
     // Animated progress value (0 to 1)
     const progressAnim = useRef(new Animated.Value(0)).current;
     const fadeAnim = useRef(new Animated.Value(1)).current;
+    const handledPendingUpdateRef = useRef(false);
 
     // Get remote config for maintenance
     const { isInMaintenance, maintenanceStatus, isLoading } = useRemoteConfig();
 
-    const appVersion = Constants.expoConfig?.version || '1.0.0';
+    const appVersion = getCurrentAppVersion();
 
     // Listen to progress animation value changes
     useEffect(() => {
@@ -37,6 +37,23 @@ export function UpdateHandler({ children }: UpdateHandlerProps) {
     useEffect(() => {
         handleUpdateFlow();
     }, []);
+
+    useEffect(() => {
+        if (__DEV__ || !Updates.isEnabled || !isUpdatePending || handledPendingUpdateRef.current) return;
+
+        handledPendingUpdateRef.current = true;
+        setUpdateState('ready');
+        setStatusText('Installing downloaded update...');
+        animateProgress(1, 250);
+        setTimeout(() => {
+            Updates.reloadAsync().catch((e) => {
+                console.log('Pending update reload error:', e);
+                setError(`Update failed: ${(e as Error).message}`);
+                setUpdateState('error');
+                setTimeout(() => fadeOutAndComplete(), 1500);
+            });
+        }, 300);
+    }, [isUpdatePending]);
 
     const animateProgress = (toValue: number, duration: number = 500) => {
         Animated.timing(progressAnim, {
@@ -241,7 +258,7 @@ const styles = StyleSheet.create({
         opacity: 0,
     },
     updateScreen: {
-        ...StyleSheet.absoluteFillObject,
+        ...StyleSheet.absoluteFill,
         zIndex: 9999,
         backgroundColor: Colors.light.background,
     },

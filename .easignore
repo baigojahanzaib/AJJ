@@ -1,0 +1,17 @@
+.git/
+node_modules/
+.expo/
+android/
+
+baigo_ecommerce/
+backend/
+dist/
+dist-*/
+
+*.apk
+*.aab
+*.log
+crash_*.txt
+doctor_*.txt
+catalog_*.csv
+moq_updates.json

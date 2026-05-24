@@ -1,17 +1,17 @@
-import { Tabs, Stack } from "expo-router";
-import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
+import { Tabs } from "expo-router";
+import { getFocusedRouteNameFromRoute } from "expo-router/react-navigation";
 import { Package, ShoppingCart, ClipboardList, User, Users } from "lucide-react-native";
 import Colors from "@/constants/colors";
 import { useCart } from "@/contexts/CartContext";
-import { View, Text, StyleSheet, Platform } from "react-native";
+import { View, Text, StyleSheet, Platform, ColorValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-function CartTabIcon({ color, size }: { color: string; size: number }) {
+function CartTabIcon({ color, size }: { color: ColorValue; size: number }) {
   const { itemCount } = useCart();
 
   return (
     <View>
-      <ShoppingCart size={size} color={color} />
+      <ShoppingCart size={size} color={color as string} />
       {itemCount > 0 && (
         <View style={styles.badge}>
           <Text style={styles.badgeText}>{itemCount > 9 ? '9+' : itemCount}</Text>
@@ -54,7 +54,7 @@ function TabsLayout() {
           const routeName = getFocusedRouteNameFromRoute(route);
           return {
             title: "Catalog",
-            tabBarIcon: ({ color, size }) => <Package size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => <Package size={size} color={color as string} />,
             tabBarStyle: ((routeName) => {
               if (routeName === "[id]") {
                 return { display: "none" };
@@ -83,21 +83,21 @@ function TabsLayout() {
         name="orders"
         options={{
           title: "Orders",
-          tabBarIcon: ({ color, size }) => <ClipboardList size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <ClipboardList size={size} color={color as string} />,
         }}
       />
       <Tabs.Screen
         name="customers"
         options={{
           title: "Customers",
-          tabBarIcon: ({ color, size }) => <Users size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Users size={size} color={color as string} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => <User size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <User size={size} color={color as string} />,
         }}
       />
       {/* Hide these from tab bar - they're accessed via navigation */}

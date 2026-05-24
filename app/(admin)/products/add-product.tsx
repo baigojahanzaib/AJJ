@@ -5,7 +5,6 @@ import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Image } from 'expo-image';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { useConvex, useMutation } from 'convex/react';
 import {
   ArrowLeft, Plus, X, Check, ImagePlus, Trash2, ChevronDown, ChevronUp, Link2, Unlink, Edit2, Copy, Palette, Layers, Camera, RefreshCw
 } from 'lucide-react-native';
@@ -15,8 +14,12 @@ import Button from '@/components/Button';
 import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
 import { ProductCombination, ProductVariation, VariationOption } from '@/types';
-import { api } from '@/convex/_generated/api';
-import { Id } from '@/convex/_generated/dataModel';
+import {
+  formatCurrency,
+  getPriceModifierFromFinalPrice,
+  getVariationOptionFinalPrice,
+} from '@/lib/product-pricing';
+import { uploadFile } from '@/lib/baigo-api';
 
 type ProductImagePickerTarget = 'product' | 'variationOption';
 type ImagePickerSource = 'library' | 'camera';
@@ -50,6 +53,11 @@ const getCombinationLabel = (combination: ProductCombination) => (
 const parseNumberInput = (value: string, fallback = 0) => {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const formatNumberInputValue = (value: number) => {
+  if (!Number.isFinite(value)) return '0';
+  return `${Math.round(value * 100) / 100}`;
 };
 
 const parseOptionalIntegerInput = (value: string) => {
@@ -125,6 +133,72 @@ const buildCombinationMatrix = (
   });
 };
 
+const getCombinationDefaultPrice = (
+  sourceVariations: ProductVariation[],
+  options: CombinationOption[],
+  basePriceValue: number
+) => {
+  const selectedOptions = options.map(option => {
+    const variation = sourceVariations.find(item =>
+      normalizeCombinationText(item.name) === normalizeCombinationText(option.name)
+    );
+    return variation?.options.find(item =>
+      normalizeCombinationText(item.name) === normalizeCombinationText(option.value)
+    );
+  });
+
+  if (selectedOptions.some(option => !option)) return null;
+
+  return basePriceValue + selectedOptions.reduce((sum, option) => (
+    sum + (option?.priceModifier ?? 0)
+  ), 0);
+};
+
+const nearlyEqual = (left: number, right: number) => Math.abs(left - right) < 0.01;
+
+const syncAutomaticCombinationPrices = (
+  currentVariations: ProductVariation[],
+  currentBasePrice: number,
+  previousProduct: { basePrice: number; variations: ProductVariation[]; combinations?: ProductCombination[] } | null,
+  currentCombinations: ProductCombination[]
+) => {
+  if (!previousProduct) return currentCombinations;
+  const previousCombinationsByKey = new Map(
+    (previousProduct.combinations ?? []).map(combination => [
+      getCombinationKey(combination.options),
+      combination,
+    ])
+  );
+
+  return currentCombinations.map(combination => {
+    const previousCombination = previousCombinationsByKey.get(getCombinationKey(combination.options));
+    if (previousCombination && !nearlyEqual(combination.price, previousCombination.price)) {
+      return combination;
+    }
+
+    const previousDefaultPrice = getCombinationDefaultPrice(
+      previousProduct.variations,
+      combination.options,
+      previousProduct.basePrice
+    );
+    const nextDefaultPrice = getCombinationDefaultPrice(
+      currentVariations,
+      combination.options,
+      currentBasePrice
+    );
+
+    if (
+      previousDefaultPrice !== null &&
+      nextDefaultPrice !== null &&
+      !nearlyEqual(combination.price, nextDefaultPrice)
+    ) {
+      return { ...combination, price: combination.price + (nextDefaultPrice - previousDefaultPrice) };
+    }
+
+    return combination;
+  });
+};
+
 const sanitizeCombinations = (combinations: ProductCombination[]) => (
   combinations.map(combination => ({
     ...combination,
@@ -136,8 +210,6 @@ export default function AddProductPage() {
   const router = useRouter();
   const params = useLocalSearchParams<{ productId?: string; editSession?: string }>();
   const { categories, addProduct, updateProduct, getProductById } = useData();
-  const convex = useConvex();
-  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
 
   const productId = params.productId;
   const editSession = params.editSession ?? 'default';
@@ -305,32 +377,11 @@ export default function AddProductPage() {
   };
 
   const uploadPickedImage = async (asset: ImagePicker.ImagePickerAsset) => {
-    const postUrl = await generateUploadUrl();
-    const localResponse = await fetch(asset.uri);
-    const blob = await localResponse.blob();
-    const contentType = asset.mimeType || blob.type || 'image/jpeg';
-
-    const uploadResponse = await fetch(postUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': contentType },
-      body: blob,
+    return uploadFile({
+      uri: asset.uri,
+      fileName: asset.fileName,
+      mimeType: asset.mimeType,
     });
-
-    if (!uploadResponse.ok) {
-      throw new Error(`Image upload failed with status ${uploadResponse.status}`);
-    }
-
-    const uploadResult = await uploadResponse.json() as { storageId?: Id<'_storage'> };
-    if (!uploadResult.storageId) {
-      throw new Error('Image upload did not return a storage ID');
-    }
-
-    const imageUrl = await convex.query(api.files.getUrl, { storageId: uploadResult.storageId });
-    if (!imageUrl) {
-      throw new Error('Uploaded image URL could not be resolved');
-    }
-
-    return imageUrl;
   };
 
   const pickAndUploadImage = async (source: ImagePickerSource) => {
@@ -474,6 +525,42 @@ export default function AddProductPage() {
       if (i !== index) return opt;
       return { ...opt, [field]: value };
     }));
+  };
+
+  const getCurrentBasePrice = () => parseNumberInput(basePrice);
+
+  const getVariationOptionFinalPriceInput = (option: VariationOption) => (
+    formatNumberInputValue(getVariationOptionFinalPrice(getCurrentBasePrice(), option))
+  );
+
+  const updateVariationOptionFinalPrice = (index: number, value: string) => {
+    const currentBasePrice = getCurrentBasePrice();
+    const finalPrice = parseNumberInput(value, currentBasePrice);
+    updateVariationOption(index, 'priceModifier', getPriceModifierFromFinalPrice(currentBasePrice, finalPrice));
+  };
+
+  const handleBasePriceChange = (value: string) => {
+    const previousBasePrice = getCurrentBasePrice();
+    const nextBasePrice = parseNumberInput(value);
+    const shouldPreserveFinalOptionPrices = previousBasePrice > 0 && !nearlyEqual(previousBasePrice, nextBasePrice);
+
+    if (shouldPreserveFinalOptionPrices) {
+      const preserveFinalPrice = (option: VariationOption) => {
+        const finalPrice = getVariationOptionFinalPrice(previousBasePrice, option);
+        return {
+          ...option,
+          priceModifier: getPriceModifierFromFinalPrice(nextBasePrice, finalPrice),
+        };
+      };
+
+      setVariations(prev => prev.map(variation => ({
+        ...variation,
+        options: variation.options.map(preserveFinalPrice),
+      })));
+      setNewVariationOptions(prev => prev.map(preserveFinalPrice));
+    }
+
+    setBasePrice(value);
   };
 
   const removeVariationOption = (index: number) => {
@@ -634,7 +721,7 @@ export default function AddProductPage() {
     setAlertConfig({
       visible: true,
       title: 'Clear Combination Prices',
-      message: 'This will remove all exact variation prices and the product will use the base price plus option modifiers.',
+      message: 'This will remove exact combination prices and the product will use the saved variation option prices.',
       type: 'warning',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
@@ -768,9 +855,15 @@ export default function AddProductPage() {
     }
 
     const parsedBasePrice = parseNumberInput(basePrice);
-    const syncedCombinations = combinations.length > 0
+    const sanitizedCombinations = combinations.length > 0
       ? sanitizeCombinations(combinations)
       : [];
+    const syncedCombinations = syncAutomaticCombinationPrices(
+      variations,
+      parsedBasePrice,
+      editingProduct ?? null,
+      sanitizedCombinations
+    );
 
     const productData = {
       name: name.trim(),
@@ -1210,10 +1303,10 @@ export default function AddProductPage() {
                 <View style={styles.optionRow}>
                   <View style={styles.optionHalf}>
                     <Input
-                      label="Price Modifier"
+                      label="Final Option Price"
                       placeholder="0.00"
-                      value={option.priceModifier.toString()}
-                      onChangeText={(value) => updateVariationOption(index, 'priceModifier', parseFloat(value) || 0)}
+                      value={getVariationOptionFinalPriceInput(option)}
+                      onChangeText={(value) => updateVariationOptionFinalPrice(index, value)}
                       keyboardType="decimal-pad"
                     />
                   </View>
@@ -1412,7 +1505,7 @@ export default function AddProductPage() {
                 placeholder="0.00"
                 placeholderTextColor={Colors.light.textTertiary}
                 value={basePrice}
-                onChangeText={setBasePrice}
+                onChangeText={handleBasePriceChange}
                 keyboardType="decimal-pad"
               />
             </View>
@@ -1504,9 +1597,9 @@ export default function AddProductPage() {
                       <Image source={{ uri: opt.image }} style={styles.optionChipImage} contentFit="cover" />
                     )}
                     <Text style={styles.variationOptionText}>{opt.name}</Text>
-                    {opt.priceModifier > 0 && (
-                      <Text style={styles.variationOptionPrice}>+R{opt.priceModifier}</Text>
-                    )}
+                    <Text style={styles.variationOptionPrice}>
+                      {formatCurrency(getVariationOptionFinalPrice(parseNumberInput(basePrice), opt))}
+                    </Text>
                   </View>
                 ))}
               </View>

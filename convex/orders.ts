@@ -61,6 +61,19 @@ export const bySalesRep = query({
     },
 });
 
+// Get orders placed by a client account
+export const byClientUser = query({
+    args: { clientUserId: v.string(), limit: v.optional(v.number()) },
+    handler: async (ctx, args) => {
+        const limit = args.limit ?? 200;
+        return await ctx.db
+            .query("orders")
+            .withIndex("by_clientUser", (q) => q.eq("clientUserId", args.clientUserId))
+            .order("desc")
+            .take(limit);
+    },
+});
+
 // Get orders by status
 export const byStatus = query({
     args: { status: v.string(), limit: v.optional(v.number()) },
@@ -119,6 +132,14 @@ export const create = mutation({
     args: {
         salesRepId: v.string(),
         salesRepName: v.string(),
+        orderSource: v.optional(v.union(
+            v.literal("client_shop"),
+            v.literal("sales_rep"),
+            v.literal("admin")
+        )),
+        clientUserId: v.optional(v.string()),
+        customerId: v.optional(v.string()),
+        placedByUserId: v.optional(v.string()),
         customerName: v.string(),
         customerPhone: v.string(),
         customerEmail: v.string(),
@@ -146,6 +167,8 @@ export const create = mutation({
 
         const orderId = await ctx.db.insert("orders", {
             ...args,
+            orderSource: args.orderSource ?? "sales_rep",
+            placedByUserId: args.placedByUserId ?? args.salesRepId,
             orderNumber,
             createdAt: now,
             updatedAt: now,

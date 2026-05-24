@@ -2,17 +2,11 @@
   "expo": {
     "name": "e-order",
     "slug": "ajj",
-    "version": "1.4.3",
+    "version": "1.6.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "rork-app",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/images/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "app.rork.salesrep-shopping-app",
@@ -27,7 +21,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "app.rork.salesrep_shopping_app",
-      "runtimeVersion": "1.1.0",
+      "runtimeVersion": "1.2.0",
       "permissions": [
         "android.permission.VIBRATE",
         "android.permission.CAMERA"
@@ -58,7 +52,18 @@
           "cameraPermission": "Allow e-order to take product photos."
         }
       ],
-      "expo-updates"
+      "expo-updates",
+      "expo-image",
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true

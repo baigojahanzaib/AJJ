@@ -5,7 +5,6 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Switch,
   TextInput,
   Alert,
   ActivityIndicator,
@@ -16,6 +15,7 @@ import { ChevronLeft, Percent } from 'lucide-react-native';
 import { useRemoteConfig } from '@/contexts/RemoteConfigContext';
 import Colors from '@/constants/colors';
 import Card from '@/components/Card';
+import UniversalSwitch from '@/components/UniversalSwitch';
 
 export default function TaxSettingsScreen() {
   const router = useRouter();
@@ -103,7 +103,7 @@ export default function TaxSettingsScreen() {
                   Turn tax calculation on or off across the app
                 </Text>
               </View>
-              <Switch
+              <UniversalSwitch
                 value={taxSettings.enabled}
                 onValueChange={handleToggleTaxEnabled}
                 trackColor={{ false: Colors.light.border, true: Colors.light.primary }}
@@ -118,7 +118,7 @@ export default function TaxSettingsScreen() {
                   Let users turn tax on/off on each individual order
                 </Text>
               </View>
-              <Switch
+              <UniversalSwitch
                 value={taxSettings.allowPerOrderSelection}
                 onValueChange={handleTogglePerOrderSelection}
                 disabled={!taxSettings.enabled}

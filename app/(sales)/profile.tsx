@@ -1,29 +1,24 @@
 
 import { useState, useMemo, useEffect } from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import * as Updates from 'expo-updates';
-import Constants from 'expo-constants';
 import {
   LogOut, Bell, HelpCircle, ChevronRight,
-  TrendingUp, Package, DollarSign, ClipboardList, Shield, RefreshCw, CheckCircle, AlertCircle
+  TrendingUp, Package, DollarSign, ClipboardList, Shield, RefreshCw, AlertCircle
 } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { useData } from '@/contexts/DataContext';
 import Card from '@/components/Card';
 import ThemedAlert from '@/components/ThemedAlert';
+import {
+  getCurrentAppVersion,
+  getCurrentRuntimeVersion,
+  getCurrentUpdateCreatedAt,
+} from '@/lib/app-version';
 import Colors from '@/constants/colors';
-
-const formatRuntimeVersion = (value: unknown): string | undefined => {
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object' && 'policy' in value) {
-    const policy = (value as { policy?: unknown }).policy;
-    return typeof policy === 'string' ? policy : undefined;
-  }
-  return undefined;
-};
 
 export default function SalesProfile() {
   const router = useRouter();
@@ -42,24 +37,45 @@ export default function SalesProfile() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
+  const { currentlyRunning, isUpdatePending } = Updates.useUpdates();
 
   // Get app version info
-  const appVersion = Constants.expoConfig?.version || '1.0.0';
-  const runtimeVersion =
-    Updates.runtimeVersion ||
-    formatRuntimeVersion(Platform.OS === 'android'
-      ? Constants.expoConfig?.android?.runtimeVersion
-      : Constants.expoConfig?.ios?.runtimeVersion) ||
-    formatRuntimeVersion(Constants.expoConfig?.runtimeVersion) ||
-    'N/A';
-  const updateId = Updates.updateId;
-  const isEmbedded = Updates.isEmbeddedLaunch;
-  const channel = Updates.channel || (Updates.updateId ? 'production' : null);
+  const appVersion = getCurrentAppVersion();
+  const runtimeVersion = getCurrentRuntimeVersion();
+  const updateId = currentlyRunning.updateId ?? Updates.updateId;
+  const isEmbedded = currentlyRunning.isEmbeddedLaunch;
+  const channel = currentlyRunning.channel || Updates.channel || (updateId ? 'production' : null);
+  const updateCreatedAt = getCurrentUpdateCreatedAt();
 
   // Check for updates on mount
   useEffect(() => {
     checkForUpdates();
   }, []);
+
+  useEffect(() => {
+    if (isUpdatePending) {
+      setUpdateAvailable(true);
+    }
+  }, [isUpdatePending]);
+
+  const promptPendingUpdateRestart = () => {
+    setAlertConfig({
+      visible: true,
+      title: 'Update Ready',
+      message: 'An update has already been downloaded. Restart the app now to apply it.',
+      type: 'success',
+      buttons: [
+        { text: 'Later', style: 'cancel' },
+        {
+          text: 'Restart Now',
+          style: 'default',
+          onPress: async () => {
+            await Updates.reloadAsync();
+          },
+        },
+      ],
+    });
+  };
 
   const checkForUpdates = async () => {
     if (__DEV__) {
@@ -68,6 +84,11 @@ export default function SalesProfile() {
     }
 
     try {
+      if (isUpdatePending) {
+        promptPendingUpdateRestart();
+        return;
+      }
+
       setIsCheckingUpdate(true);
       const update = await Updates.checkForUpdateAsync();
       setUpdateAvailable(update.isAvailable);
@@ -97,6 +118,11 @@ export default function SalesProfile() {
 
   const downloadAndApplyUpdate = async () => {
     try {
+      if (isUpdatePending) {
+        await Updates.reloadAsync();
+        return;
+      }
+
       setIsDownloading(true);
       const update = await Updates.fetchUpdateAsync();
 
@@ -324,7 +350,7 @@ export default function SalesProfile() {
           <Text style={styles.sectionTitle}>App Info</Text>
           <Card style={styles.updateCard}>
             <View style={styles.updateRow}>
-              <Text style={styles.updateLabel}>Version</Text>
+              <Text style={styles.updateLabel}>OTA Version</Text>
               <Text style={styles.updateValue}>{appVersion}</Text>
             </View>
 
@@ -367,9 +393,16 @@ export default function SalesProfile() {
 
             <View style={styles.updateDivider} />
 
+            <View style={styles.updateRow}>
+              <Text style={styles.updateLabel}>Updated At</Text>
+              <Text style={styles.updateValue}>{updateCreatedAt}</Text>
+            </View>
+
+            <View style={styles.updateDivider} />
+
             <TouchableOpacity
               style={styles.checkUpdateButton}
-              onPress={checkForUpdates}
+              onPress={updateAvailable || isUpdatePending ? downloadAndApplyUpdate : checkForUpdates}
               disabled={isCheckingUpdate || isDownloading}
             >
               {isCheckingUpdate || isDownloading ? (
@@ -377,6 +410,13 @@ export default function SalesProfile() {
                   <ActivityIndicator size="small" color={Colors.light.primary} />
                   <Text style={styles.checkUpdateText}>
                     {isDownloading ? 'Downloading...' : 'Checking...'}
+                  </Text>
+                </>
+              ) : isUpdatePending ? (
+                <>
+                  <AlertCircle size={18} color={Colors.light.warning} />
+                  <Text style={[styles.checkUpdateText, { color: Colors.light.warning }]}>
+                    Update Downloaded - Tap to Restart
                   </Text>
                 </>
               ) : updateAvailable ? (

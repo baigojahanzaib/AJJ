@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'sales_rep';
+export type UserRole = 'admin' | 'sales_rep' | 'client';
 
 export interface User {
   id: string;
@@ -11,6 +11,7 @@ export interface User {
   avatarUrl?: string;
   isActive: boolean;
   createdAt: string;
+  customerId?: string;
 }
 
 export interface Category {
@@ -115,6 +116,10 @@ export interface Order {
   orderNumber: string;
   salesRepId: string;
   salesRepName: string;
+  orderSource?: 'client_shop' | 'sales_rep' | 'admin';
+  clientUserId?: string;
+  customerId?: string;
+  placedByUserId?: string;
   customerName: string;
   customerPhone: string;
   customerEmail: string;

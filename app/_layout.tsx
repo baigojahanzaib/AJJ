@@ -5,8 +5,6 @@ import { trpc, trpcClient } from "@/lib/trpc";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { ConvexProvider } from "convex/react";
-import { convex } from "@/lib/convex";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { DataProvider } from "@/contexts/DataContext";
 import { CartProvider } from "@/contexts/CartContext";
@@ -27,6 +25,8 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerBackTitle: "Back", headerShown: false }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="(shop)" />
       <Stack.Screen name="(admin)" />
       <Stack.Screen name="(sales)" />
       <Stack.Screen name="order/[id]" />
@@ -40,30 +40,28 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <ConvexProvider client={convex}>
-      <trpc.Provider client={trpcClient} queryClient={queryClient}>
-        <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView style={{ flex: 1 }}>
-            <AuthProvider>
-              <RemoteConfigProvider>
-                <UpdateHandler>
-                  <NotificationProvider>
-                    <OfflineProvider>
-                      <DataProvider>
-                        <CartProvider>
-                          <RootLayoutNav />
-                          <OfflineBanner />
-                        </CartProvider>
-                      </DataProvider>
-                    </OfflineProvider>
-                  </NotificationProvider>
-                </UpdateHandler>
-              </RemoteConfigProvider>
-            </AuthProvider>
-          </GestureHandlerRootView>
-        </QueryClientProvider>
-      </trpc.Provider>
-    </ConvexProvider>
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <AuthProvider>
+            <RemoteConfigProvider>
+              <UpdateHandler>
+                <NotificationProvider>
+                  <OfflineProvider>
+                    <DataProvider>
+                      <CartProvider>
+                        <RootLayoutNav />
+                        <OfflineBanner />
+                      </CartProvider>
+                    </DataProvider>
+                  </OfflineProvider>
+                </NotificationProvider>
+              </UpdateHandler>
+            </RemoteConfigProvider>
+          </AuthProvider>
+        </GestureHandlerRootView>
+      </QueryClientProvider>
+    </trpc.Provider>
   );
 }
 

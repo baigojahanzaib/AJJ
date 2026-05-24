@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, FlatList, TextInput, Modal, Switch } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, FlatList, TextInput, Modal } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
@@ -12,11 +12,13 @@ import { useData } from '@/contexts/DataContext';
 import { useAuth } from '@/contexts/AuthContext';
 import Input from '@/components/Input';
 import Button from '@/components/Button';
+import UniversalSwitch from '@/components/UniversalSwitch';
 import Card from '@/components/Card';
 import Colors from '@/constants/colors';
 import { Customer } from '@/types';
 import ThemedAlert from '@/components/ThemedAlert';
 import { generateAndSharePDF } from '@/lib/pdf-generator';
+import { buildOrderItemsFromCartItems } from '@/lib/order-items';
 
 interface AlertConfig {
   visible: boolean;
@@ -363,38 +365,7 @@ export default function SalesCart() {
         }
       }
 
-      // Helper function to find the combination-specific SKU based on selected variations
-      const findCombinationSku = (product: typeof items[0]['product'], selectedVariations: typeof items[0]['selectedVariations']): string => {
-        if (product.combinations && product.combinations.length > 0) {
-          const match = product.combinations.find(combo =>
-            combo.options.every(comboOption => {
-              const comboOptName = comboOption.name.trim().toLowerCase();
-              const comboOptValue = comboOption.value.trim().toLowerCase();
-              return selectedVariations.some(selected =>
-                selected.variationName.trim().toLowerCase() === comboOptName &&
-                selected.optionName.trim().toLowerCase() === comboOptValue
-              );
-            })
-          );
-          if (match?.sku) {
-            return match.sku;
-          }
-        }
-        // Fallback to base SKU
-        return product.sku;
-      };
-
-      const orderItems = items.map(item => ({
-        id: item.id,
-        productId: item.product.id,
-        productName: item.product.name,
-        productSku: findCombinationSku(item.product, item.selectedVariations),
-        productImage: item.product.images?.[0] ?? '',
-        selectedVariations: item.selectedVariations,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        totalPrice: item.totalPrice,
-      }));
+      const orderItems = buildOrderItemsFromCartItems(items);
 
       const newOrder = await addOrder({
         salesRepId: user?.id || '',
@@ -760,7 +731,7 @@ export default function SalesCart() {
             {taxSettings.enabled && taxSettings.allowPerOrderSelection && (
               <View style={styles.taxToggleRow}>
                 <Text style={styles.taxToggleLabel}>Apply Tax On This Order</Text>
-                <Switch
+                <UniversalSwitch
                   value={isOrderTaxEnabled}
                   onValueChange={setIsOrderTaxEnabled}
                   trackColor={{ false: Colors.light.border, true: Colors.light.primary }}
@@ -984,7 +955,7 @@ export default function SalesCart() {
               {taxSettings.enabled && taxSettings.allowPerOrderSelection && (
                 <View style={styles.taxToggleRow}>
                   <Text style={styles.taxToggleLabel}>Apply Tax On This Order</Text>
-                  <Switch
+                  <UniversalSwitch
                     value={isOrderTaxEnabled}
                     onValueChange={setIsOrderTaxEnabled}
                     trackColor={{ false: Colors.light.border, true: Colors.light.primary }}

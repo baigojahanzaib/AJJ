@@ -12,27 +12,41 @@ export function useProtectedRoute() {
 
         const segmentList = segments as unknown as string[];
         const currentGroup = segmentList[0];
-        const inAuthGroup = currentGroup === '(admin)' || currentGroup === '(sales)' || currentGroup === 'order';
-        const inPublicGroup = segmentList.length === 0 || !inAuthGroup; // Root or any non-protected route
+        const currentScreen = segmentList[1];
+        const inLoginGroup = currentGroup === '(auth)';
+        const inAdminGroup = currentGroup === '(admin)';
+        const inSalesGroup = currentGroup === '(sales)';
+        const inSharedOrderRoute = currentGroup === 'order';
+        const inProtectedShopRoute =
+            currentGroup === '(shop)' && (currentScreen === 'checkout' || currentScreen === 'orders');
+        const inProtectedRoute = inAdminGroup || inSalesGroup || inSharedOrderRoute || inProtectedShopRoute;
 
-        console.log('[AuthGuard] Check:', { isAuthenticated, inAuthGroup, segments });
+        console.log('[AuthGuard] Check:', { isAuthenticated, inProtectedRoute, segments });
+
+        const routeForRole = () => {
+            if (user?.role === 'admin' && !isViewingAsUser) return '/(admin)/dashboard';
+            if (user?.role === 'sales_rep' || (user?.role === 'admin' && isViewingAsUser)) return '/(sales)/catalog';
+            return '/(shop)/catalog';
+        };
 
         if (isAuthenticated) {
-            if (inPublicGroup) {
-                // If logged in and on login screen, redirect to appropriate dashboard
-                // Note: index.tsx also handles this, but having it here handles deep links to / too
-                if (user?.role === 'admin' && !isViewingAsUser) {
-                    router.replace('/(admin)/dashboard');
-                } else {
-                    router.replace('/(sales)/catalog');
-                }
+            if (inLoginGroup) {
+                router.replace(routeForRole() as any);
+                return;
+            }
+
+            if (inAdminGroup && user?.role !== 'admin') {
+                router.replace(routeForRole() as any);
+                return;
+            }
+
+            if (inSalesGroup && user?.role !== 'sales_rep' && user?.role !== 'admin') {
+                router.replace('/(shop)/catalog' as any);
             }
         } else {
-            // Not authenticated
-            if (inAuthGroup) {
-                // Redirect to login if trying to access protected routes
+            if (inProtectedRoute) {
                 console.log('[AuthGuard] Not authenticated in protected route, redirecting to login');
-                router.replace('/');
+                router.replace('/(auth)/sign-in' as any);
             }
         }
     }, [isLoading, isAuthenticated, segments, user, isViewingAsUser]);

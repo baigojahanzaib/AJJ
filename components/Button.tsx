@@ -1,4 +1,4 @@
-import { StyleSheet, Text, TouchableOpacity, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, ViewStyle, TextStyle } from 'react-native';
 import Colors from '@/constants/colors';
 import React from "react";
 

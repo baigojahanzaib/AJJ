@@ -88,16 +88,27 @@ export const create = mutation({
         email: v.string(),
         password: v.string(),
         name: v.string(),
-        role: v.union(v.literal("admin"), v.literal("sales_rep")),
+        role: v.union(v.literal("admin"), v.literal("sales_rep"), v.literal("client")),
         phone: v.string(),
         avatar: v.optional(v.string()),
         isActive: v.boolean(),
+        customerId: v.optional(v.id("customers")),
     },
     handler: async (ctx, args) => {
         const { password, ...rest } = args;
+        const email = args.email.toLowerCase();
+        const existing = await ctx.db
+            .query("users")
+            .withIndex("by_email", (q) => q.eq("email", email))
+            .first();
+
+        if (existing) {
+            throw new Error("An account with this email already exists");
+        }
+
         return await ctx.db.insert("users", {
             ...rest,
-            email: args.email.toLowerCase(),
+            email,
             passwordHash: password, // In production, hash the password
             createdAt: new Date().toISOString(),
         });
@@ -114,7 +125,8 @@ export const update = mutation({
         phone: v.optional(v.string()),
         avatar: v.optional(v.string()),
         isActive: v.optional(v.boolean()),
-        role: v.optional(v.union(v.literal("admin"), v.literal("sales_rep"))),
+        role: v.optional(v.union(v.literal("admin"), v.literal("sales_rep"), v.literal("client"))),
+        customerId: v.optional(v.id("customers")),
     },
     handler: async (ctx, args) => {
         const { id, password, ...updates } = args;

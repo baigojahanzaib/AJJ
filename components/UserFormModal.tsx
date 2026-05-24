@@ -10,9 +10,8 @@ import ThemedAlert from '@/components/ThemedAlert';
 import Colors from '@/constants/colors';
 import { User, UserRole } from '@/types';
 import * as ImagePicker from 'expo-image-picker';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
 import { DEFAULT_AVATARS, DEFAULT_AVATAR_KEYS } from '@/constants/avatars';
+import { uploadFile } from '@/lib/baigo-api';
 
 export type UserFormData = Omit<User, 'id' | 'createdAt' | 'password'> & {
   password?: string;
@@ -39,8 +38,6 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
   const [isActive, setIsActive] = useState(true);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-
-  const generateUploadUrl = useMutation(api.files.generateUploadUrl);
 
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
@@ -181,23 +178,15 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
     }
 
 
-    // Continue with upload logic inside handleSave
     setIsUploading(true);
     try {
       let finalAvatar = avatar;
       if (localImageUri) {
-        const postUrl = await generateUploadUrl();
-        const response = await fetch(localImageUri);
-        const blob = await response.blob();
-
-        const result = await fetch(postUrl, {
-          method: "POST",
-          headers: { "Content-Type": blob.type },
-          body: blob,
+        finalAvatar = await uploadFile({
+          uri: localImageUri,
+          fileName: `avatar-${Date.now()}.jpg`,
+          mimeType: 'image/jpeg',
         });
-
-        const { storageId } = await result.json();
-        finalAvatar = storageId;
       }
 
       const userData = {
@@ -436,6 +425,20 @@ export default function UserFormModal({ visible, onClose, onSave, editingUser }:
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Role</Text>
             <View style={styles.roleContainer}>
+              <TouchableOpacity
+                style={[styles.roleOption, role === 'client' && styles.roleOptionActive]}
+                onPress={() => {
+                  setRole('client');
+                  Haptics.selectionAsync();
+                }}
+              >
+                <Text style={[styles.roleOptionText, role === 'client' && styles.roleOptionTextActive]}>
+                  Client
+                </Text>
+                <Text style={[styles.roleOptionSubtext, role === 'client' && styles.roleOptionSubtextActive]}>
+                  Can browse, checkout, and view own orders
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.roleOption, role === 'sales_rep' && styles.roleOptionActive]}
                 onPress={() => {

@@ -14,5 +14,10 @@
     "**/*.tsx",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
+  ],
+  "exclude": [
+    "convex",
+    "convex/**/*",
+    "import_moq.ts"
   ]
 }

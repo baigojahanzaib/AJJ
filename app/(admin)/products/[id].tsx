@@ -13,6 +13,7 @@ import Button from '@/components/Button';
 import Badge from '@/components/Badge';
 import Card from '@/components/Card';
 import ThemedAlert from '@/components/ThemedAlert';
+import { formatCurrency, getVariationOptionFinalPrice } from '@/lib/product-pricing';
 import Colors from '@/constants/colors';
 
 export default function AdminProductDetail() {
@@ -238,11 +239,9 @@ export default function AdminProductDetail() {
                                                 )}
                                                 <View style={styles.optionInfo}>
                                                     <Text style={styles.optionName}>{option.name}</Text>
-                                                    {option.priceModifier !== 0 && (
-                                                        <Text style={styles.optionPrice}>
-                                                            {option.priceModifier > 0 ? '+' : ''}R{option.priceModifier.toFixed(2)}
-                                                        </Text>
-                                                    )}
+                                                    <Text style={styles.optionPrice}>
+                                                        {formatCurrency(getVariationOptionFinalPrice(product.basePrice, option))}
+                                                    </Text>
                                                     <Text style={styles.optionStock}>Stock: {option.stock}</Text>
                                                 </View>
                                             </View>
