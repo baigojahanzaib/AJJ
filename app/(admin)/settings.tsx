@@ -37,13 +37,13 @@ export default function AdminSettings() {
   const handleSwitchToUserView = () => {
     setAlertConfig({
       visible: true,
-      title: 'View as User',
-      message: 'You will be switched to the sales user view. You can return to the admin panel from the user profile settings.',
+      title: 'Open Sales Field App',
+      message: 'You will be switched to the sales field workspace. You can return to the admin panel from the sales profile settings.',
       type: 'info',
       buttons: [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Switch View',
+          text: 'Open Sales',
           style: 'default',
           onPress: async () => {
             await switchToUserView();
@@ -52,6 +52,10 @@ export default function AdminSettings() {
         },
       ],
     });
+  };
+
+  const handleOpenCustomerShop = () => {
+    router.replace('/(shop)/catalog' as any);
   };
 
   const handleLogout = () => {
@@ -79,7 +83,8 @@ export default function AdminSettings() {
       title: 'Account',
       items: [
         { icon: Bell, label: 'Notifications', onPress: () => showAlert('Notifications', 'Notification settings coming soon') },
-        { icon: Eye, label: 'View as User', onPress: handleSwitchToUserView, highlight: true },
+        { icon: Eye, label: 'Customer shop', onPress: handleOpenCustomerShop, highlight: true },
+        { icon: User, label: 'Sales field app', onPress: handleSwitchToUserView, highlight: true },
       ],
     },
     {

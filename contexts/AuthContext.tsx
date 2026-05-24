@@ -97,12 +97,13 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const logout = useCallback(async () => {
     try {
       await logoutFromApi();
+    } catch (error) {
+      console.error('[Auth] Logout API error:', error);
+    } finally {
       await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
       await AsyncStorage.removeItem(VIEW_AS_USER_KEY);
       setIsViewingAsUser(false);
       setState({ user: null, isAuthenticated: false, isLoading: false });
-    } catch (error) {
-      console.error('[Auth] Logout error:', error);
     }
   }, []);
 

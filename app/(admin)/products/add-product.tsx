@@ -50,8 +50,16 @@ const getCombinationLabel = (combination: ProductCombination) => (
   combination.options.map(option => option.value).join(' / ')
 );
 
+const decimalKeyboardType = Platform.OS === 'ios' ? 'decimal-pad' : 'numeric';
+
+const normalizeDecimalInput = (value: string) => {
+  const normalized = value.replace(',', '.').replace(/[^\d.]/g, '');
+  const [whole = '', ...decimalParts] = normalized.split('.');
+  return decimalParts.length > 0 ? `${whole}.${decimalParts.join('')}` : whole;
+};
+
 const parseNumberInput = (value: string, fallback = 0) => {
-  const parsed = Number.parseFloat(value);
+  const parsed = Number.parseFloat(normalizeDecimalInput(value));
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
@@ -92,7 +100,7 @@ const buildCombinationMatrix = (
   basePriceValue: number
 ): ProductCombination[] => {
   const completeVariations = getCompleteVariations(sourceVariations);
-  if (completeVariations.length < 2) return [];
+  if (completeVariations.length < 1) return [];
 
   const existingByKey = new Map(
     existingCombinations.map(combination => [getCombinationKey(combination.options), combination])
@@ -243,6 +251,8 @@ export default function AddProductPage() {
   const [editingVariationIndex, setEditingVariationIndex] = useState<number | null>(null);
   const [showPresetPicker, setShowPresetPicker] = useState(false);
   const [expandedCombinations, setExpandedCombinations] = useState<Record<string, boolean>>({});
+  const [combinationPriceInputs, setCombinationPriceInputs] = useState<Record<string, string>>({});
+  const [variationOptionPriceInputs, setVariationOptionPriceInputs] = useState<Record<string, string>>({});
 
   const [alertConfig, setAlertConfig] = useState({
     visible: false,
@@ -281,6 +291,8 @@ export default function AddProductPage() {
       setEditingVariationIndex(null);
       setShowPresetPicker(false);
       setExpandedCombinations({});
+      setCombinationPriceInputs({});
+      setVariationOptionPriceInputs({});
       return;
     }
 
@@ -307,6 +319,8 @@ export default function AddProductPage() {
     setEditingVariationIndex(null);
     setShowPresetPicker(false);
     setExpandedCombinations({});
+    setCombinationPriceInputs({});
+    setVariationOptionPriceInputs({});
     loadedFormKeyRef.current = formKey;
   }, [formKey, productId]);
 
@@ -341,6 +355,8 @@ export default function AddProductPage() {
     setEditingVariationIndex(null);
     setShowPresetPicker(false);
     setExpandedCombinations({});
+    setCombinationPriceInputs({});
+    setVariationOptionPriceInputs({});
     loadedFormKeyRef.current = formKey;
   }, [editingProduct, formKey, productId]);
 
@@ -504,6 +520,7 @@ export default function AddProductPage() {
       setNewVariationOptions([]);
       setEditingVariationIndex(null);
     }
+    setVariationOptionPriceInputs({});
     setShowVariationModal(true);
   };
 
@@ -529,38 +546,28 @@ export default function AddProductPage() {
 
   const getCurrentBasePrice = () => parseNumberInput(basePrice);
 
-  const getVariationOptionFinalPriceInput = (option: VariationOption) => (
+  const getVariationOptionPriceInputKey = (option: VariationOption, index: number) => (
+    option.id || `option-${index}`
+  );
+
+  const getVariationOptionFinalPriceInput = (option: VariationOption, index: number) => (
+    variationOptionPriceInputs[getVariationOptionPriceInputKey(option, index)] ??
     formatNumberInputValue(getVariationOptionFinalPrice(getCurrentBasePrice(), option))
   );
 
   const updateVariationOptionFinalPrice = (index: number, value: string) => {
+    const option = newVariationOptions[index];
+    if (!option) return;
+    const sanitizedValue = normalizeDecimalInput(value);
+    const inputKey = getVariationOptionPriceInputKey(option, index);
     const currentBasePrice = getCurrentBasePrice();
-    const finalPrice = parseNumberInput(value, currentBasePrice);
+    const finalPrice = parseNumberInput(sanitizedValue, currentBasePrice);
+    setVariationOptionPriceInputs(prev => ({ ...prev, [inputKey]: sanitizedValue }));
     updateVariationOption(index, 'priceModifier', getPriceModifierFromFinalPrice(currentBasePrice, finalPrice));
   };
 
   const handleBasePriceChange = (value: string) => {
-    const previousBasePrice = getCurrentBasePrice();
-    const nextBasePrice = parseNumberInput(value);
-    const shouldPreserveFinalOptionPrices = previousBasePrice > 0 && !nearlyEqual(previousBasePrice, nextBasePrice);
-
-    if (shouldPreserveFinalOptionPrices) {
-      const preserveFinalPrice = (option: VariationOption) => {
-        const finalPrice = getVariationOptionFinalPrice(previousBasePrice, option);
-        return {
-          ...option,
-          priceModifier: getPriceModifierFromFinalPrice(nextBasePrice, finalPrice),
-        };
-      };
-
-      setVariations(prev => prev.map(variation => ({
-        ...variation,
-        options: variation.options.map(preserveFinalPrice),
-      })));
-      setNewVariationOptions(prev => prev.map(preserveFinalPrice));
-    }
-
-    setBasePrice(value);
+    setBasePrice(normalizeDecimalInput(value));
   };
 
   const removeVariationOption = (index: number) => {
@@ -672,6 +679,7 @@ export default function AddProductPage() {
     }
 
     setShowVariationModal(false);
+    setVariationOptionPriceInputs({});
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -714,6 +722,7 @@ export default function AddProductPage() {
     }
 
     setCombinations(nextCombinations);
+    setCombinationPriceInputs({});
     Haptics.selectionAsync();
   };
 
@@ -730,6 +739,7 @@ export default function AddProductPage() {
           style: 'destructive',
           onPress: () => {
             setCombinations([]);
+            setCombinationPriceInputs({});
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           },
         },
@@ -746,6 +756,19 @@ export default function AddProductPage() {
   const getCombinationStateKey = (combination: ProductCombination) => (
     getCombinationKey(combination.options) || String(combination.id)
   );
+
+  const getCombinationPriceInputValue = (combination: ProductCombination) => (
+    combinationPriceInputs[getCombinationStateKey(combination)] ?? formatNumberInputValue(combination.price)
+  );
+
+  const updateCombinationPrice = (index: number, value: string) => {
+    const combination = combinations[index];
+    if (!combination) return;
+    const sanitizedValue = normalizeDecimalInput(value);
+    const key = getCombinationStateKey(combination);
+    setCombinationPriceInputs(prev => ({ ...prev, [key]: sanitizedValue }));
+    updateCombination(index, { price: parseNumberInput(sanitizedValue) });
+  };
 
   const toggleCombinationExpanded = (combination: ProductCombination) => {
     const key = getCombinationStateKey(combination);
@@ -772,6 +795,11 @@ export default function AddProductPage() {
           style: 'destructive',
           onPress: () => {
             setCombinations(prev => prev.filter((_, i) => i !== index));
+            setCombinationPriceInputs(prev => {
+              const next = { ...prev };
+              delete next[getCombinationStateKey(combination)];
+              return next;
+            });
             setExpandedCombinations(prev => {
               const next = { ...prev };
               delete next[getCombinationStateKey(combination)];
@@ -821,7 +849,7 @@ export default function AddProductPage() {
       return;
     }
 
-    if (!basePrice || parseFloat(basePrice) <= 0) {
+    if (!basePrice || parseNumberInput(basePrice) <= 0) {
       setAlertConfig({
         visible: true,
         title: 'Invalid Price',
@@ -858,12 +886,14 @@ export default function AddProductPage() {
     const sanitizedCombinations = combinations.length > 0
       ? sanitizeCombinations(combinations)
       : [];
-    const syncedCombinations = syncAutomaticCombinationPrices(
-      variations,
-      parsedBasePrice,
-      editingProduct ?? null,
-      sanitizedCombinations
-    );
+    const syncedCombinations = sanitizedCombinations.length > 0
+      ? syncAutomaticCombinationPrices(
+        variations,
+        parsedBasePrice,
+        editingProduct ?? null,
+        sanitizedCombinations
+      )
+      : buildCombinationMatrix(variations, [], parsedBasePrice);
 
     const productData = {
       name: name.trim(),
@@ -925,7 +955,7 @@ export default function AddProductPage() {
       setAlertConfig({
         visible: true,
         title: 'Save Failed',
-        message: 'The product could not be saved. Please try again.',
+        message: error instanceof Error ? error.message : 'The product could not be saved. Please try again.',
         type: 'error',
         buttons: [{ text: 'OK', style: 'default' }],
       });
@@ -1025,9 +1055,9 @@ export default function AddProductPage() {
                           <Input
                             label="Price"
                             placeholder="0.00"
-                            value={combination.price.toString()}
-                            onChangeText={(value) => updateCombination(index, { price: parseNumberInput(value) })}
-                            keyboardType="decimal-pad"
+                            value={getCombinationPriceInputValue(combination)}
+                            onChangeText={(value) => updateCombinationPrice(index, value)}
+                            keyboardType={decimalKeyboardType}
                           />
                         </View>
                         <View style={styles.optionHalf}>
@@ -1305,9 +1335,9 @@ export default function AddProductPage() {
                     <Input
                       label="Final Option Price"
                       placeholder="0.00"
-                      value={getVariationOptionFinalPriceInput(option)}
+                      value={getVariationOptionFinalPriceInput(option, index)}
                       onChangeText={(value) => updateVariationOptionFinalPrice(index, value)}
-                      keyboardType="decimal-pad"
+                      keyboardType={decimalKeyboardType}
                     />
                   </View>
                   <View style={styles.optionHalf}>
@@ -1506,7 +1536,7 @@ export default function AddProductPage() {
                 placeholderTextColor={Colors.light.textTertiary}
                 value={basePrice}
                 onChangeText={handleBasePriceChange}
-                keyboardType="decimal-pad"
+                keyboardType={decimalKeyboardType}
               />
             </View>
           </View>

@@ -195,6 +195,10 @@ export default function SalesProfile() {
     });
   };
 
+  const handleOpenCustomerShop = () => {
+    router.replace('/(shop)/catalog' as any);
+  };
+
   const handleLogout = () => {
     setAlertConfig({
       visible: true,
@@ -261,6 +265,7 @@ export default function SalesProfile() {
   };
 
   const settingsItems = [
+    { icon: Package, label: 'Customer shop', onPress: handleOpenCustomerShop, highlight: true },
     { icon: Bell, label: 'Notifications', onPress: () => showComingSoon('Notifications') },
     { icon: HelpCircle, label: 'Help Center', onPress: () => showComingSoon('Help Center') },
     ...(isViewingAsUser && user?.role === 'admin' ? [
